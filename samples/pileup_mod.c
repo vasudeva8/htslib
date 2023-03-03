@@ -62,7 +62,6 @@ int plpconstructor(void *data, const bam1_t *b, bam_pileup_cd *cd) {
         printf("Failed to allocate base modification state\n");
         return 1;
     }
-    fflush(stdout);
 
     //parse the bam data and gather modification data from MM tags
     return (-1 == bam_parse_basemod(b, (hts_base_mod_state*)cd->p)) ? 1 : 0;
@@ -152,7 +151,7 @@ int main(int argc, char *argv[])
                 printf("*");
                 continue;
             }
-            /*invoke bam mods_mods_at_qpos before bam_plp_insertion_mod that the base modification
+            /*invoke bam_mods_at_qpos before bam_plp_insertion_mod that the base modification
             is retrieved before change in pileup pos thr' plp_insertion_mod call*/
             if ((modlen = bam_mods_at_qpos(plp[j].b, plp[j].qpos, plp[j].cd.p, mods, NMODS)) == -1) {
                 printf("Failed to get modifications\n");

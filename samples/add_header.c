@@ -113,7 +113,7 @@ int main(int argc, char *argv[])
     ret = EXIT_SUCCESS;
     //bam data write to follow....
 end:
-    //cleanupq
+    //cleanup
     if (in_samhdr) {
         sam_hdr_destroy(in_samhdr);
     }

@@ -144,8 +144,6 @@ end:
     if (iter) {
         sam_itr_destroy(iter);
     }
-
-    //TODO should we have a #def for sam_idx_destroy?
     if (idx)
         hts_idx_destroy(idx);
     return ret;

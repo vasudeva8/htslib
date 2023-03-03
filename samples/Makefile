@@ -10,11 +10,15 @@ LDFLAGS = $(HTS_DIR)/libhts.a -L$(HTS_DIR) $(HTSLIB_static_LDFLAGS) $(HTSLIB_sta
 #to dynamically link to libhts
 #LDFLAGS = -L $(HTS_DIR) -lhts -Wl,-rpath,<installed lib path>
 
-PRGS = flags split split2 cram read_fast read_header read_ref read_bam read_aux dump_aux add_header rem_header update_header mod_bam mod_aux \
-		mod_aux_ba write_fast idx_on_write read_reg read_multireg pileup mpileup modstate pileup_mod flags_field split_t1 split_t2 split_t3 \
-		read_fast_i read_tbx
+PRGS = flags split split2 cram read_fast read_header read_ref read_bam \
+	read_aux dump_aux add_header rem_header update_header mod_bam mod_aux \
+	mod_aux_ba write_fast idx_on_write read_reg read_multireg pileup \
+	mpileup modstate pileup_mod flags_field split_t1 split_t2 qtask \
+	read_fast_i read_tbs
 
-flags: 
+all: $(PRGS)
+
+flags:
 	$(CC) $(CFLAGS) -I $(HTS_DIR) flags_demo.c -o $@  $(LDFLAGS)
 
 split:
@@ -101,14 +105,12 @@ split_t1:
 split_t2:
 	$(CC) $(CFLAGS) -I $(HTS_DIR) split_thread2.c -o $@  $(LDFLAGS)
 
-split_t3:
-	$(CC) $(CFLAGS) -I $(HTS_DIR) split_thread3.c -o $@  $(LDFLAGS)
+qtask:
+	$(CC) $(CFLAGS) -I $(HTS_DIR) qtask.c -o $@  $(LDFLAGS)
 
 clean:
 	find . -name "*.o" | xargs rm -rf
 	find . -name "*.dSYM" | xargs rm -rf
 	rm $(PRGS)
-
-all: $(PRGS)
 
 

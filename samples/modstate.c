@@ -59,7 +59,7 @@ int main(int argc, char *argv[])
     hts_base_mod_state *ms = NULL;
 
 
-    //read_bam infile 1/2
+    //modstate infile 1/2
     if (argc != 3) {
         print_usage(stderr);
         goto end;

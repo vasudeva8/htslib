@@ -81,7 +81,7 @@ int main(int argc, char *argv[])
         goto end;
     }
 
-    //read data, check flags and update count
+    //read data
     while ((c = sam_read1(infile, in_samhdr, bamdata)) >= 0) {
         printf("\nsequence: ");
         for (c = 0; c < bamdata->core.l_qseq; ++c) {
