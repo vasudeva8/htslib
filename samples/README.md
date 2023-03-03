@@ -214,7 +214,11 @@ examples per demonstration tool.
 [Mod_aux]: mod_aux.c
 [Mod_aux_ba]: mod_aux_ba.c
 [Write_fast]: write_fast.c
+<<<<<<< HEAD
 [Index_write]: index_write.c
+=======
+[Index]: index_write.c
+>>>>>>> bda88fa (samples of htslib/sam api usage)
 [Read_reg]: index_reg_read.c
 [Read_multireg]: index_multireg_read.c
 [Pileup]: pileup.c
