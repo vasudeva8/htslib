@@ -105,8 +105,8 @@ split_t1:
 split_t2:
 	$(CC) $(CFLAGS) -I $(HTS_DIR) split_thread2.c -o $@  $(LDFLAGS)
 
-qtask:
-	$(CC) $(CFLAGS) -I $(HTS_DIR) qtask.c -o $@  $(LDFLAGS)
+split_t3:
+	$(CC) $(CFLAGS) -I $(HTS_DIR) split_thread3.c -o $@  $(LDFLAGS)
 
 clean:
 	find . -name "*.o" | xargs rm -rf

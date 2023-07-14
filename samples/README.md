@@ -60,8 +60,12 @@ indexed.
   is used for cram output creation.
 
 [Read_fast][Read_fast]
+<<<<<<< HEAD
 
   This application showcases the fasta/fastq data read.
+=======
+    This application showcases fasta/fastq data read without using index.
+>>>>>>> 2e77df8 (a few more functionalities)
 
 [Read_header][Read_header]
 
@@ -128,6 +132,10 @@ indexed.
   BA:I. Modified data is written on standard output.
 
 [Write_fast][Write_fast]
+<<<<<<< HEAD
+=======
+    This application showcases the fasta/fastq data write. It appends a dummy data to given file and creates an index file for it.
+>>>>>>> 2e77df8 (a few more functionalities)
 
   This application showcases the fasta/fastq data write. It appends a dummy
   data to given file.
@@ -146,6 +154,9 @@ indexed.
 
   This application showcases the usage of mulitple region specification in
   alignment read.
+
+[Read_fast_index][Read_fast_index]
+    This application showcases the fasta/fastq data read using index. It takes a region (reference name[:start-end]) and gets data from that region.
 
 [Pileup][Pileup]:
 
@@ -196,6 +207,9 @@ indexed.
 More detailed documentation is available in the [DEMO.md][DEMO] with worked
 examples per demonstration tool.
 
+[Split_t3][Split_t3]
+    This application shocases the use of mulitple queues, scheduling of different tasks and getting results in orderered and unordered fashion. It saves the read1 and read2 as separate files in given directory, one as sam and other as bam. The samfile/read1 can have unordered data and bamfile/read2 will have ordered data.
+
 
 [Flags]: flags_demo.c
 [Split]: split.c
@@ -214,13 +228,10 @@ examples per demonstration tool.
 [Mod_aux]: mod_aux.c
 [Mod_aux_ba]: mod_aux_ba.c
 [Write_fast]: write_fast.c
-<<<<<<< HEAD
 [Index_write]: index_write.c
-=======
-[Index]: index_write.c
->>>>>>> bda88fa (samples of htslib/sam api usage)
 [Read_reg]: index_reg_read.c
 [Read_multireg]: index_multireg_read.c
+[Read_fast_index]: read_fast_index.c
 [Pileup]: pileup.c
 [Mpileup]: mpileup.c
 [Modstate]: modstate.c
