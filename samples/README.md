@@ -45,7 +45,7 @@ In many cases, the alignment data are expected as sorted, compressed and indexed
     This application showcases the different way in which cram reference data is used for cram output creation.
 
 [Read_fast][Read_fast]
-    This application showcases the fasta/fastq data read.
+    This application showcases fasta/fastq data read without using index.
 
 [Read_header][Read_header]
     This application showcases the read and access of header data. It can show all header line of given type, data of a given tag on a specific header line or for all lines of given type.
@@ -81,7 +81,7 @@ In many cases, the alignment data are expected as sorted, compressed and indexed
     This application showcases the update of auxiliary array data in alignment. It adds count of ATCGN base as an array in auxiliary data, BA:I. Modified data is written on standard output.
 
 [Write_fast][Write_fast]
-    This application showcases the fasta/fastq data write. It appends a dummy data to given file.
+    This application showcases the fasta/fastq data write. It appends a dummy data to given file and creates an index file for it.
 
 [Index][Index]
     This application showcases the creation of index along with output creation. Based on file type and shift, it creates bai, csi or crai files.
@@ -91,6 +91,9 @@ In many cases, the alignment data are expected as sorted, compressed and indexed
 
 [Read_multireg][Read_multireg]:
     This application showcases the usage of mulitple region specification in alignment read.
+
+[Read_fast_index][Read_fast_index]
+    This application showcases the fasta/fastq data read using index. It takes a region (reference name[:start-end]) and gets data from that region.
 
 [Pileup][Pileup]:
     This application showcases the pileup api, where all alignments covering a reference position are accessed together. It displays the bases covering each position on standard output.
@@ -113,6 +116,9 @@ In many cases, the alignment data are expected as sorted, compressed and indexed
 [Split_t2][Split_t2]
     This application shocases the use of thread pool in file handling. It saves the read1 and read2 as separate files in given directory, one as sam and other as bam. A pool of 4 threads is created and shared for both read and write.
 
+[Split_t3][Split_t3]
+    This application shocases the use of mulitple queues, scheduling of different tasks and getting results in orderered and unordered fashion. It saves the read1 and read2 as separate files in given directory, one as sam and other as bam. The samfile/read1 can have unordered data and bamfile/read2 will have ordered data.
+
 
 [Flags]: flags_demo.c
 [Split]: split.c
@@ -134,6 +140,7 @@ In many cases, the alignment data are expected as sorted, compressed and indexed
 [Index]: index_write.c
 [Read_reg]: index_reg_read.c
 [Read_multireg]: index_multireg_read.c
+[Read_fast_index]: read_fast_index.c
 [Pileup]: pileup.c
 [Mpileup]: mpileup.c
 [Modstate]: modstate.c
@@ -141,3 +148,4 @@ In many cases, the alignment data are expected as sorted, compressed and indexed
 [Flags_field]: flags_htsopt_field.c
 [Split_t1]: split_thread1.c
 [Split_t2]: split_thread2.c
+[Split_t3]: split_thread3.c
