@@ -31,14 +31,14 @@ DEALINGS IN THE SOFTWARE
 #include <htslib/sam.h>
 #include <htslib/faidx.h>
 
-/// print_usage - show flags_demo usage
-/** @param fp pointer to the file / terminal to which demo_usage to be dumped
+/// print_usage - show usage
+/** @param fp pointer to the file / terminal to which usage to be dumped
 returns nothing
 */
 static void print_usage(FILE *fp)
 {
     fprintf(fp, "Usage: write_fast <file>\n\
-Appends a fasta/fastq file.\n");
+Appends a fasta/fastq file and indexes it.\n");
     return;
 }
 

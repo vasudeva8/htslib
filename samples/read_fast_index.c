@@ -31,13 +31,13 @@ DEALINGS IN THE SOFTWARE
 #include <htslib/sam.h>
 #include <htslib/faidx.h>
 
-/// print_usage - show flags_demo usage
-/** @param fp pointer to the file / terminal to which demo_usage to be dumped
+/// print_usage - show usage
+/** @param fp pointer to the file / terminal to which usage to be dumped
 returns nothing
 */
 static void print_usage(FILE *fp)
 {
-    fprintf(fp, "Usage: read_fast_i <infile> A/Q regcount regiondef\n\
+    fprintf(fp, "Usage: read_fast_i <infile> A/Q 0/1 regiondef\n\
 Reads the fasta/fastq file using index and shows the content.\n\
 For fasta files use A and Q for fastq files.\n\
 Region can be 1 or more of <reference name>[:start-end] entries separated by comma.\n\

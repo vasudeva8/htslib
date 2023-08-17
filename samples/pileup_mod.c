@@ -31,8 +31,8 @@ DEALINGS IN THE SOFTWARE
 #include <ctype.h>
 #include <htslib/sam.h>
 
-/// print_usage - show flags_demo usage
-/** @param fp pointer to the file / terminal to which demo_usage to be dumped
+/// print_usage - show usage
+/** @param fp pointer to the file / terminal to which usage to be dumped
 returns nothing
 */
 static void print_usage(FILE *fp)

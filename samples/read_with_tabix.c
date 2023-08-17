@@ -31,14 +31,14 @@ DEALINGS IN THE SOFTWARE
 #include <htslib/sam.h>
 #include <htslib/tbx.h>
 
-/// print_usage - show flags_demo usage
-/** @param fp pointer to the file / terminal to which demo_usage to be dumped
+/// print_usage - show usage
+/** @param fp pointer to the file / terminal to which usage to be dumped
 returns nothing
 */
 static void print_usage(FILE *fp)
 {
-    fprintf(fp, "Usage: read_with_tbx <infile>\n\
-bgzf sam\n");
+    fprintf(fp, "Usage: read_with_tbx <infile> <shift> <region>\n\
+Reads sam.gz file using tabix index.\n");
     return;
 }
 
@@ -65,7 +65,7 @@ int main(int argc, char *argv[])
     shift = atoi(argv[2]);
     region = argv[3];
 
-    //open file for read and console for write of output
+    //open file for read
     if (!(infile = sam_open(inname, "r"))) {
         printf("Failed to open file\n");
         goto end;
@@ -80,7 +80,9 @@ load:
             }
             else {
                 goto load;              //built, try again to load
-            }            
+            }
+        /*tbx_conf_sam for compressed sam, tbx_conf_vcf for compressed vcf,
+        tbx_conf_bed for bed ...*/
         }
         printf("Failed to load index\n");
         goto end;
@@ -98,7 +100,8 @@ load:
         printf("Failed to read all data\n");
         goto end;
     }
-    //tabix doesnt support multi region description but application can explicitly extract region from such queries and use on tbx_itr_querys
+    //tabix doesnt support multi region description but application can explicitly extract region
+    //from such queries and use on tbx_itr_querys
     /*while (rem = hts_parse_region(..region.)) {
         if(rem[-1] == ',') rem[-1]='\0';
         iter = tbx_itr_querys(..region);
