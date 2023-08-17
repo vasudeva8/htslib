@@ -57,7 +57,7 @@ returns nothing
 */
 static void print_usage(FILE *fp)
 {
-    fprintf(fp, "Usage: split_t3 infile threadcount outdir\n\
+    fprintf(fp, "Usage: qtask infile threadcount outdir\n\
 Splits the input file alignments to read1 and read2 and saves as 1.sam and 2.bam in given directory\n\
 GC ratio - sum(G,C) / sum(A,T,C,G,N) - is calculated and added on each alignment as xr:f aux tag.\n");
     return;

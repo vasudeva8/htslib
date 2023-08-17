@@ -13,8 +13,8 @@ LDFLAGS = $(HTS_DIR)/libhts.a -L$(HTS_DIR) $(HTSLIB_static_LDFLAGS) $(HTSLIB_sta
 PRGS = flags split split2 cram read_fast read_header read_ref read_bam \
 	read_aux dump_aux add_header rem_header update_header mod_bam mod_aux \
 	mod_aux_ba write_fast idx_on_write read_reg read_multireg pileup \
-	mpileup modstate pileup_mod flags_field split_t1 split_t2 qtask \
-	read_fast_i read_tbs
+	mpileup modstate pileup_mod flags_field split_t1 split_t2 qtask read_tbx\
+	read_fast_i
 
 all: $(PRGS)
 
@@ -105,8 +105,8 @@ split_t1:
 split_t2:
 	$(CC) $(CFLAGS) -I $(HTS_DIR) split_thread2.c -o $@  $(LDFLAGS)
 
-split_t3:
-	$(CC) $(CFLAGS) -I $(HTS_DIR) split_thread3.c -o $@  $(LDFLAGS)
+qtask:
+	$(CC) $(CFLAGS) -I $(HTS_DIR) qtask_thread.c -o $@  $(LDFLAGS)
 
 clean:
 	find . -name "*.o" | xargs rm -rf
