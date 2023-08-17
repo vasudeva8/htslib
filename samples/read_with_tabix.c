@@ -119,6 +119,6 @@ end:
     }
     if (infile) {
         sam_close(infile);
-    }    
+    }
     return ret;
 }

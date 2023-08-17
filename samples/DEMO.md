@@ -100,6 +100,11 @@ alignment read.
 Read_multireg - This application showcases the usage of mulitple regionn
 specification in alignment read.
 
+Read_fast_index - This application showcases the fasta/fastq data read using
+index.
+
+Read_tbx - This application showcases the tabix index usage with sam files.
+
 Pileup - This application showcases the pileup api, where all alignments
 covering a reference position are accessed together. It displays the bases
 covering each position on standard output.
@@ -137,7 +142,6 @@ saves the read1 and read2 as separate files in given directory, one as sam and
 other as bam. The samfile/read1 can have unordered data and bamfile/read2 will
 have ordered data.
 
-TODO
 
 ## Building the sample apps
 
@@ -815,9 +819,9 @@ of the same. It takes the filename and creates index files, fai and gzi based
 on compression status of input file. When fai/gzi path are NULL, they are
 created along with fasta/q file.
 
-...
-if (fai_build3(outname, NULL, NULL) == -1) {
-...
+    ...
+    if (fai_build3(outname, NULL, NULL) == -1) {
+    ...
 Refer: write_fast.c
 
 Tabix index can be created for compressed sam/vcf and other data using
@@ -827,19 +831,19 @@ tbx_destroy at the end.
 
 Below excerpt shows usage of tabix index,
 
-...
-    //load index
-    if (!(idx = tbx_index_load3(inname, NULL, HTS_IDX_SILENT_FAIL))) {
-...
-            if (tbx_index_build3(inname, NULL, shift, 1, &tbx_conf_sam) == -1) {
-...
-    //read using index and region
-    if (!(iter = tbx_itr_querys(idx, region))) {
-...
-    while ((c = tbx_itr_next(infile, idx, iter, &data)) >= 0) {
-...
-        tbx_destroy(idx);
-...
+    ...
+        //load index
+        if (!(idx = tbx_index_load3(inname, NULL, HTS_IDX_SILENT_FAIL))) {
+    ...
+                if (tbx_index_build3(inname, NULL, shift, 1, &tbx_conf_sam) == -1) {
+    ...
+        //read using index and region
+        if (!(iter = tbx_itr_querys(idx, region))) {
+    ...
+        while ((c = tbx_itr_next(infile, idx, iter, &data)) >= 0) {
+    ...
+            tbx_destroy(idx);
+    ...
 Refer: read_with_tabix.c
 
 

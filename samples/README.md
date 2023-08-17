@@ -60,7 +60,8 @@ indexed.
   is used for cram output creation.
 
 [Read_fast][Read_fast]
-    This application showcases fasta/fastq data read without using index.
+
+  This application showcases fasta/fastq data read without using index.
 
 [Read_header][Read_header]
 
@@ -127,6 +128,7 @@ indexed.
   BA:I. Modified data is written on standard output.
 
 [Write_fast][Write_fast]
+
   This application showcases the fasta/fastq data write. It appends a dummy
   data to given file and creates an index file for it.
 
@@ -146,13 +148,15 @@ indexed.
   alignment read.
 
 [Read_fast_index][Read_fast_index]
-    This application showcases the fasta/fastq data read using index. It takes
-    a region (reference name[:start-end]) and gets data from that region.
+
+  This application showcases the fasta/fastq data read using index. It takes a
+  region (reference name[:start-end]) and gets data from that region.
 
 [Read_tbx][Read_tbx]
-    This application showcases the tabix index usage with sam files. It takes
-    a shift value and region (refname[:start-end]) and gets data from that
-    region. The shift will be used to create index file if not present already.
+
+  This application showcases the tabix index usage with sam files. It takes a
+  shift value and region (refname[:start-end]) and gets data from that region.
+  The shift will be used to create index file if not present already.
     
 [Pileup][Pileup]:
 
@@ -199,6 +203,7 @@ indexed.
   and write.
 
 [Qtask_thread][Qtask_thread]
+
   This application shocases the use of mulitple queues, scheduling of different
   tasks and getting results in orderered and unordered fashion. It saves the
   read1 and read2 as separate files in given directory, one as sam and other
@@ -243,5 +248,3 @@ examples per demonstration tool.
 [Split_thread2]: split_thread2.c
 [Qtask_thread]: qtask_thread.c
 [DEMO]: DEMO.md
-
-TODO
