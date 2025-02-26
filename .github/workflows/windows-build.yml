@@ -23,6 +23,11 @@ jobs:
           mingw-w64-x86_64-tools-git
           mingw-w64-x86_64-xz
           mingw-w64-x86_64-zlib
+    - name: Setup tmate session
+      uses: mxschmitt/action-tmate@v3
+      with:
+        detached: true
+        timeout-minutes: 15
     - name: Compile htslib
       shell: msys2 {0}
       run: |
