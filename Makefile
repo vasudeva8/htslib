@@ -643,7 +643,7 @@ check test: all $(HTSCODECS_TEST_TARGETS)
 	cd test/base_mods && ./base-mods.sh base-mods.tst
 	REF_PATH=: test/sam test/ce.fa test/faidx/faidx.fa test/faidx/fastqs.fq
 	test/test-regidx
-	cd test && REF_PATH=: ./test.pl $${TEST_OPTS:-}
+	cd test && REF_PATH=: ./test.pl -t /tmp/1/ $${TEST_OPTS:-}
 
 test/hts_endian: test/hts_endian.o
 	$(CC) $(LDFLAGS) -o $@ test/hts_endian.o $(LIBS)
