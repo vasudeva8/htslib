@@ -167,6 +167,7 @@ static inline int ks_resize(kstring_t *s, size_t size)
 	        return -1;
 	    s->s = tmp;
 	    s->m = size;
+        fprintf(stderr, "Resized to %lld\n", size);
 	}
 	return 0;
 }

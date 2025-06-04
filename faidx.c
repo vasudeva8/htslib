@@ -712,23 +712,22 @@ faidx_t *fai_load_format(const char *fn, enum fai_format_options format) {
     return fai_load3_format(fn, NULL, NULL, FAI_CREATE, format);
 }
 
-
-static char *fai_retrieve(const faidx_t *fai, const faidx1_t *val,
-                          uint64_t offset, hts_pos_t beg, hts_pos_t end, hts_pos_t *len) {
-    char *buffer, *s;
+static hts_pos_t fai_retrieve2(const faidx_t *fai, const faidx1_t *val,
+                          uint64_t offset, hts_pos_t beg, hts_pos_t end, char *buffer, hts_pos_t *len) {
+    char *s;
     ssize_t nread, remaining, firstline_len, firstline_blen;
     int ret;
 
     if ((uint64_t) end - (uint64_t) beg >= SIZE_MAX - 2) {
         hts_log_error("Range %"PRId64"..%"PRId64" too big", beg, end);
         *len = -1;
-        return NULL;
+        return *len;
     }
 
     if (val->line_blen <= 0) {
         hts_log_error("Invalid line length in index: %d", val->line_blen);
         *len = -1;
-        return NULL;
+        return *len;
     }
 
     ret = bgzf_useek(fai->bgzf,
@@ -739,14 +738,13 @@ static char *fai_retrieve(const faidx_t *fai, const faidx1_t *val,
     if (ret < 0) {
         *len = -1;
         hts_log_error("Failed to retrieve block. (Seeking in a compressed, .gzi unindexed, file?)");
-        return NULL;
+        return *len;
     }
 
-    // Over-allocate so there is extra space for one end-of-line sequence
-    buffer = (char*)malloc((size_t) end - beg + val->line_len - val->line_blen + 1);
-    if (!buffer) {
-        *len = -1;
-        return NULL;
+    // is buffer long enough? should be over-allocated for one end-of-line sequence
+    if (*len < (end - beg + val->line_len - val->line_blen + 1)) {
+        *len = -3;  //buffer too small!
+        return *len;
     }
 
     remaining = *len = end - beg;
@@ -757,7 +755,7 @@ static char *fai_retrieve(const faidx_t *fai, const faidx1_t *val,
         nread = bgzf_read_small(fai->bgzf, buffer, remaining);
         if (nread < remaining) goto error;
         buffer[nread] = '\0';
-        return buffer;
+        return *len;
     }
 
     s = buffer;
@@ -785,14 +783,45 @@ static char *fai_retrieve(const faidx_t *fai, const faidx1_t *val,
     }
 
     *s = '\0';
-    return buffer;
+    return *len;
 
 error:
     hts_log_error("Failed to retrieve block: %s",
                   (nread == 0)? "unexpected end of file" : "error reading file");
     free(buffer);
     *len = -1;
-    return NULL;
+    return *len;
+}
+
+static char *fai_retrieve(const faidx_t *fai, const faidx1_t *val,
+                          uint64_t offset, hts_pos_t beg, hts_pos_t end, hts_pos_t *len) {
+    char *buffer;
+
+    if ((uint64_t) end - (uint64_t) beg >= SIZE_MAX - 2) {
+        hts_log_error("Range %"PRId64"..%"PRId64" too big", beg, end);
+        *len = -1;
+        return NULL;
+    }
+
+    if (val->line_blen <= 0) {
+        hts_log_error("Invalid line length in index: %d", val->line_blen);
+        *len = -1;
+        return NULL;
+    }
+
+    // Over-allocate so there is extra space for one end-of-line sequence
+    *len = end - beg + val->line_len - val->line_blen + 1;
+    buffer = (char*)malloc(*len);
+    if (!buffer) {
+        *len = -1;
+        return NULL;
+    }
+    if (fai_retrieve2(fai, val, offset, beg, end, buffer, len) < 0) {
+        *len = -1;
+        free(buffer);
+        return NULL;
+    }
+    return buffer;
 }
 
 static int fai_get_val(const faidx_t *fai, const char *str,
@@ -856,6 +885,22 @@ char *fai_fetch64(const faidx_t *fai, const char *str, hts_pos_t *len)
     return fai_retrieve(fai, &val, val.seq_offset, beg, end, len);
 }
 
+char *fai_fetch64_2(const faidx_t *fai, const char *str, char *buffer, hts_pos_t *len)
+{
+    faidx1_t val;
+    int64_t beg, end;
+
+    if (fai_get_val(fai, str, len, &val, &beg, &end)) {
+        return NULL;
+    }
+
+    // now retrieve the sequence
+    if (fai_retrieve2(fai, &val, val.seq_offset, beg, end, buffer, len) >= 0) {
+        return buffer;
+    }
+    return NULL;
+}
+
 char *fai_fetch(const faidx_t *fai, const char *str, int *len)
 {
     hts_pos_t len64;
@@ -874,6 +919,21 @@ char *fai_fetchqual64(const faidx_t *fai, const char *str, hts_pos_t *len) {
 
     // now retrieve the sequence
     return fai_retrieve(fai, &val, val.qual_offset, beg, end, len);
+}
+
+char *fai_fetchqual64_2(const faidx_t *fai, const char *str, char *buffer, hts_pos_t *len) {
+    faidx1_t val;
+    int64_t beg, end;
+
+    if (fai_get_val(fai, str, len, &val, &beg, &end)) {
+        return NULL;
+    }
+
+    // now retrieve the sequence
+    if (fai_retrieve2(fai, &val, val.qual_offset, beg, end, buffer, len) >= 0) {
+        return buffer;
+    }
+    return NULL;
 }
 
 char *fai_fetchqual(const faidx_t *fai, const char *str, int *len) {
@@ -982,6 +1042,22 @@ char *faidx_fetch_seq64(const faidx_t *fai, const char *c_name, hts_pos_t p_beg_
     return fai_retrieve(fai, &val, val.seq_offset, p_beg_i, p_end_i + 1, len);
 }
 
+char *faidx_fetch_seq64_2(const faidx_t *fai, const char *c_name, hts_pos_t p_beg_i, hts_pos_t p_end_i, char *buffer, hts_pos_t *len)
+{
+    faidx1_t val;
+
+    // Adjust position
+    if (faidx_adjust_position(fai, 1, &val, c_name, &p_beg_i, &p_end_i, len)) {
+        return NULL;
+    }
+
+    // Now retrieve the sequence
+    if (fai_retrieve2(fai, &val, val.seq_offset, p_beg_i, p_end_i + 1, buffer, len) >= 0) {
+        return buffer;
+    }
+    return NULL;
+}
+
 char *faidx_fetch_seq(const faidx_t *fai, const char *c_name, int p_beg_i, int p_end_i, int *len)
 {
     hts_pos_t len64;
@@ -1001,6 +1077,22 @@ char *faidx_fetch_qual64(const faidx_t *fai, const char *c_name, hts_pos_t p_beg
 
     // Now retrieve the sequence
     return fai_retrieve(fai, &val, val.qual_offset, p_beg_i, p_end_i + 1, len);
+}
+
+char *faidx_fetch_qual64_2(const faidx_t *fai, const char *c_name, hts_pos_t p_beg_i, hts_pos_t p_end_i, char *buffer, hts_pos_t *len)
+{
+    faidx1_t val;
+
+    // Adjust position
+    if (faidx_adjust_position(fai, 1, &val, c_name, &p_beg_i, &p_end_i, len)) {
+        return NULL;
+    }
+
+    // Now retrieve the sequence
+    if (fai_retrieve2(fai, &val, val.qual_offset, p_beg_i, p_end_i + 1, buffer, len) >= 0) {
+        return buffer;
+    }
+    return NULL;
 }
 
 char *faidx_fetch_qual(const faidx_t *fai, const char *c_name, int p_beg_i, int p_end_i, int *len)
