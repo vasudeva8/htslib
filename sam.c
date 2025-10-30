@@ -4254,6 +4254,130 @@ static inline int sam_read1_sam(htsFile *fp, sam_hdr_t *h, bam1_t *b) {
     return ret;
 }
 
+/// extra checks on reads and decide whether to pass it to user or not
+/* fp - file pointer which holds the buffer
+ * h  - header
+ * b  - bam data
+ * returns 1 to send the read to user and 0 to discard and check next read
+ * returns -1 on errors
+ */
+int check_conditions(samFile *fp, sam_hdr_t *h, bam1_t *b)
+{
+    /* for maxdepth, depth per position is kept on a buffer in sam_cond_t data
+    in the file. It is safe as long as same file is not shared across threads.
+    Expects sorted data and if not so, releases the condition data to avoid
+    overhead. The depth data discarded and only appropriate data is held as
+    new position is read.
+    */
+    int ret = 0;
+    sam_cond_t *c = NULL;
+    //static kstring_t ksbuf = KS_INITIALIZE;
+    //static int tid = -2;
+    uint32_t *depbuf = NULL, *cigar = NULL;
+    //static hts_pos_t bufstart, bufend;  //start and end pos kept in buffer
+    int updlen = 0;
+    //size_t qlen = 0, seqoffset = bufend > b->core.pos ? b->core.pos - bufstart : 0, reqbuflen = 0;
+    size_t qlen = 0, seqoffset = 0, reqbuflen = 0;
+    size_t bkplen = 0;//ksbuf.m;
+    kstring_t *ksbuf = NULL;
+
+    if (!fp)
+        return -1;
+    if (!(c = (sam_cond_t*)fp->cond_data))
+        return 1;   //nothing to check, pass
+    if (!(ksbuf = &c->ksbuf))
+        return -1;
+    if (c->tid != b->core.tid) {        //tid changed, reset and reuse
+        c->bufstart = c->bufend = seqoffset = 0;
+        c->tid = b->core.tid;
+        memset(ksbuf->s, 0, ksbuf->m);
+    } else {                            //same tid, ensure sorted data
+        if (c->bufstart > b->core.pos) {
+            hts_log_warning("Unsorted data, discarding max depth checks");
+            sam_cond_destroy(c);
+            fp->cond_data = NULL;
+            return 1;   //return pass
+        }
+    }
+
+    if (b->core.flag & BAM_FUNMAP)  //unmapped --> no pos info!
+        return 1;
+
+    seqoffset = c->bufend > b->core.pos ? b->core.pos - c->bufstart : 0;
+    fprintf(stderr,"%d buf: %"PRIhts_pos"-%"PRIhts_pos"\n", b->core.tid, c->bufstart, c->bufend);
+    //ensure sort order and fail or return true right away
+    if (ksbuf->m) {
+        //sorted and got a new pos, we can discard all upto this point
+        fprintf(stderr,"bef: ");
+        for(int i = 0; i < c->bufend - c->bufstart; ++i)
+           fprintf(stderr,"%u,", *((uint32_t*)ksbuf->s+i));
+        fprintf(stderr,"\n");
+        if ( c->bufstart < b->core.pos) {
+            if (seqoffset) {
+                //fprintf(stderr, "moving %d < %d; %d\n", bufstart, b->core.pos, seqoffset);
+                size_t len = ksbuf->m - (seqoffset * sizeof(uint32_t));
+                memmove(ksbuf->s, ksbuf->s + seqoffset * sizeof(uint32_t), len);
+                memset(ksbuf->s + len, 0, seqoffset * sizeof(uint32_t));
+            } else
+                memset(ksbuf->s, 0, ksbuf->m);
+            c->bufstart = b->core.pos;
+            seqoffset = 0;
+        }
+        fprintf(stderr,"aft: ");
+        for(int i = 0; i < c->bufend - c->bufstart;++i)
+           fprintf(stderr,"%u,", *((uint32_t*)ksbuf->s+i));
+        fprintf(stderr,"\n");
+        fprintf(stderr,"s: %lld e: %lld off %lld\n", c->bufstart, c->bufend, seqoffset);
+    }
+    if (c->bufstart < b->core.pos)
+        c->bufstart = b->core.pos;
+    //depends on l_qseq and length given by query consuming cigars matching
+    reqbuflen = seqoffset + b->core.l_qseq;
+    fprintf(stderr,"%d buf: %"PRIhts_pos"-%"PRIhts_pos"\n", b->core.tid, c->bufstart, c->bufend);
+    if (!(cigar = bam_get_cigar(b)))    //invalid!
+        return -1;
+    if (reqbuflen * sizeof(uint32_t) > ksbuf->m) {
+        fprintf(stderr, "resizing, %lld/%lld, need %lld * 4\n", ksbuf->l, ksbuf->m, reqbuflen);
+        if (reqbuflen< 0)
+           fprintf(stderr, "reqbuf len %d, strt %d end %d pos %d\n", reqbuflen, c->bufstart, c->bufend, b->core.pos);
+        if (ks_resize(ksbuf, reqbuflen*sizeof(uint32_t)))  //failed to alloc mem
+            return -1;
+        memset(ksbuf->s+bkplen, 0, ksbuf->m - bkplen);    //reset
+    }
+    /*for(int i = 0; i < ksbuf.l;++i)
+        fprintf(stderr,"%u,", *((uint32_t*)ksbuf.s+i));
+    fprintf(stderr,"\n");
+    */
+    depbuf = (uint32_t*)ksbuf->s;
+
+    //for (int i = 0; i < b->core.l_qseq; ++i)
+    //   fprintf(stderr, "%c ",seq_nt16_str[bam_seqi(bam_get_seq(b), i)]);
+    //fprintf(stderr, "\n");
+
+    for (int i = 0; i < b->core.n_cigar; ++i) {
+        if (!(bam_cigar_type(bam_cigar_op(cigar[i]))&1)) {
+            fprintf(stderr,"skipped cigar %d%c\n", bam_cigar_oplen(cigar[i]), bam_cigar_opchr(cigar[i]));
+            continue;
+        }
+        //fprintf(stderr,"%d%c\n", bam_cigar_oplen(cigar[i]), bam_cigar_opchr(cigar[i]));
+        for(int j = 0; j < bam_cigar_oplen(cigar[i]); ++j) {
+            //++depbuf[bufstart + seqoffset + updlen + j];
+            ret |= ++depbuf[seqoffset + updlen + j] <= c->maxdepth;
+            //ret |= 1;
+            //++depbuf[seqoffset + updlen + j];
+            fprintf(stderr,"%lld - %c %p %d\n", c->bufstart + seqoffset + updlen + j, seq_nt16_str[bam_seqi(bam_get_seq(b), updlen + j)], &depbuf[seqoffset + updlen + j], depbuf[seqoffset + updlen + j]);
+        }
+        updlen += bam_cigar_oplen(cigar[i]);
+    }
+    if (c->bufend < b->core.pos + b->core.l_qseq)
+        c->bufend = b->core.pos + b->core.l_qseq;
+    ksbuf->l = c->bufend - c->bufstart;
+
+    fprintf(stderr, "l %lld m %lld %lld - %lld read %d\n", ksbuf->l, ksbuf->m, c->bufstart, c->bufend, ret);
+
+    return ret;
+}
+
 // Returns 0 on success,
 //        -1 on EOF,
 //       <-1 on error
@@ -4296,9 +4420,15 @@ int sam_read1(htsFile *fp, sam_hdr_t *h, bam1_t *b)
             return -3;
         }
 
-        pass_filter = (ret >= 0 && fp->filter)
-            ? sam_passes_filter(h, b, fp->filter)
-            : 1;
+        if (ret >= 0) {
+            pass_filter = fp->filter
+                ? sam_passes_filter(h, b, fp->filter)
+                : 1;
+
+            if (pass_filter && fp->cond_data)   //extra checks if set so
+                pass_filter = check_conditions(fp, h, b);
+        } else
+            pass_filter = 1;
     } while (pass_filter == 0);
 
     return pass_filter < 0 ? -2 : ret;
