@@ -4342,13 +4342,268 @@ int check_conditions(samFile *fp, sam_hdr_t *h, bam1_t *b)
     return ret;
 }
 
+rc_item_t* getitemfrombuffer(sam_cond_t* c)
+{
+    /*rc_buffer_t *t = c->rc.buf->head;
+    int i = 0;
+    if (c->rc.buf->n + 1 >= c->rc.buf->m) {
+        if (!(t = realloc(c->rc.buf->buf, c->rc.buf->m << 1))) {
+            return NULL;
+        }
+        c->rc.buf->buf = t;
+        c->rc.buf->m = c->rc.buf->m << 1;
+        for (i = c->rc.buf->n; i < c->rc.buf->m; ++i) {
+            c->rc.buf->buf[i].next = c->rc.buf->buf[i].sts = 0;
+            if (!(c->rc.buf->buf[i].b = bam_init1())) {
+                return NULL;
+            }
+        }
+    }
+    return c->rc.buf->buf + c->rc.buf->n++;*/
+    rc_item_t *t = calloc(1, sizeof(rc_item_t));
+    if (t) {
+        if (!(t->b = bam_init1())) {
+            free(t);
+            return NULL;
+        }
+    }
+    return t;
+}
+//-1 0 - error, success
+int processcache(sam_cond_t *c, sam_hdr_t *h, int ipend)
+{
+    //used based on order of presence
+    //can be order, sorted by quality, sorted by length...
+    int update = 1;
+    rc_item_t *s = NULL, *t = NULL;
+    s = c->rc.head;
+
+    int ret = 0, i, j, updlen = 0, chk = 1, dsts = 1, skip = 0;
+    uint32_t *depbuf = NULL, *cigar = NULL;
+    size_t seqoffset = 0, reqbuflen = 0, bkplen = 0;
+    kstring_t *ksbuf = NULL;
+
+fprintf(stderr, "\n");
+    //assumes fp and condition data to be valid
+    if (!(ksbuf = &c->ksbuf)) {
+        return -1;  //invalid, earlier alloc failed
+    }
+    bkplen = c->ksbuf.m;
+    //todo pass the entry upto which processing to be made and avoid cmps?
+    while (s && ((s->b->core.pos < c->rc.cpos && s->b->core.tid == c->rc.ctid) || ipend)) {   //lower pos or ipend to process all
+        chk = 1;
+        t = s->next;
+        fprintf(stderr, "chking %s %lld %d ", bam_get_qname(s->b), s->b->core.pos, s->sts);
+//        UNKNOWN = 0, CHECKED, SELECTED, UNSELECTED} rstatus;
+        if (s->sts != UNKNOWN) {    //already taken care
+            s = t;
+            continue;
+        }   //else check
+    
+        if (s->b->core.flag & BAM_FUNMAP || !s->b->core.n_cigar) {
+            s->sts = SELECTED;  //unmapped or no cigar, pass
+            s = t;
+            fprintf(stderr, "UNMAP/ncigar selected %s %lld\n", bam_get_qname(s->b), s->b->core.pos);
+            continue;
+        }
+        if (skip) {
+            if (s->b->core.tid != c->rc.ctid) {
+                break;
+            }
+            s->sts = UNSELECTED;  //unmapped or no cigar, pass
+            fprintf(stderr, "%s: unselected skip %lld\n", bam_get_qname(s->b),s->b->core.pos);
+            s = t;
+            continue;   //or remove here?
+        }
+    // if (c->tid != s->b->core.tid) {        //tid changed, reset and reuse
+    //     c->bufstart = c->bufend = seqoffset = 0;
+    //     c->tid = b->core.tid;
+    //     if (ksbuf->s)
+    //         memset(ksbuf->s, 0, ksbuf->m);
+    // } else {                            //same tid, ensure sorted data
+    //     if (c->bufstart > b->core.pos) {
+    //         hts_log_warning("Unsorted data, max depth checks won't work");
+    //         //sam_cond_destroy(c);
+    //         //fp->cond_data = NULL;
+    //         return -1;   //return failure may be not required here
+    //     }
+    // }
+
+        seqoffset = c->bufend > s->b->core.pos ? s->b->core.pos - c->bufstart : 0;
+        if (ksbuf->m) {
+            //sorted and got a new pos, we can discard all upto this point
+            if ( c->bufstart < s->b->core.pos) {
+                if (seqoffset) {            //part discard
+                    size_t sz = seqoffset * sizeof(uint32_t);
+                    size_t len = ksbuf->m - sz;
+                    memmove(ksbuf->s, ksbuf->s + sz, len);
+                    memset(ksbuf->s + len, 0, sz);
+                } else                      //full discard
+                    memset(ksbuf->s, 0, ksbuf->m);
+
+                c->bufstart = s->b->core.pos;
+                seqoffset = 0;
+            }
+        }
+        if (c->bufstart < s->b->core.pos)
+            c->bufstart = s->b->core.pos;
+        //depends on l_qseq and length given by query consuming cigars matching
+        reqbuflen = seqoffset + s->b->core.l_qseq;
+        cigar = bam_get_cigar(s->b);
+        if (reqbuflen * sizeof(uint32_t) > ksbuf->m) {
+            if (ks_resize(ksbuf, reqbuflen * sizeof(uint32_t))) //failed to realloc
+                return -1;
+            memset(ksbuf->s+bkplen, 0, ksbuf->m - bkplen);      //reset
+        }
+
+        depbuf = (uint32_t*)ksbuf->s;
+
+        fprintf(stderr, " bufst %lld ", c->bufstart);
+redo:
+        updlen = 0;
+        dsts = 1;
+        //todo change this double loop to memcpy with a buffer
+        if (chk) {  //chk whether this read is required or not
+            for (i = 0; i < s->b->core.n_cigar; ++i) {
+                //fprintf(stderr,"%d%c ", bam_cigar_oplen(cigar[i]), bam_cigar_opchr(cigar[i]));
+                //fflush(stderr);
+                if (!(bam_cigar_type(bam_cigar_op(cigar[i]))&1)) {
+                    continue;   //irrelevant cigar
+                }
+                //cigar consuming query, update depth for each pos
+                for(j = 0; j < bam_cigar_oplen(cigar[i]); ++j) {
+                    dsts &= (1 + depbuf[seqoffset + updlen + j]) > c->maxdepth;
+                }
+                if (!dsts) {
+                    //a pos is not saturated, use this read
+                    chk = 0;
+                    goto redo;
+                }
+                updlen += bam_cigar_oplen(cigar[i]);
+            }
+            //saturated
+            s->sts = UNSELECTED;
+            skip = 1;
+            fprintf(stderr, "%s: unselected %lld\n", bam_get_qname(s->b), s->b->core.pos);
+        } else {    //use this read
+            fprintf(stderr, "%s: selected %lld %llu, %llu %d\n", bam_get_qname(s->b), s->b->core.pos, c->bufstart, s->b->core.pos, s->b->core.l_qseq);
+            for (i = 0; i < s->b->core.n_cigar; ++i) {
+                //fprintf(stderr, "%d%c ", bam_cigar_oplen(cigar[i]), bam_cigar_opchr(cigar[i]));
+                //fflush(stderr);
+                if (!(bam_cigar_type(bam_cigar_op(cigar[i]))&1)) {
+                    continue;   //irrelevant cigar
+                }
+                //cigar consuming query, update depth for each pos
+                for(j = 0; j < bam_cigar_oplen(cigar[i]); ++j) {
+                    //printf("%d/%d ", seqoffset+updlen+j, ksbuf->m);
+                    dsts &= ++depbuf[seqoffset + updlen + j] > c->maxdepth;
+                }
+                updlen += bam_cigar_oplen(cigar[i]);
+            }
+            //mark as selected
+            s->sts = SELECTED;
+            if (dsts) { //had the required depth
+                //rest not required?
+                skip = 1;
+            }
+        }
+        if (c->bufend < s->b->core.pos + s->b->core.l_qseq)
+            c->bufend = s->b->core.pos + s->b->core.l_qseq;   //update bufend pos
+        ksbuf->l = c->bufend - c->bufstart;
+        s = t;
+    }
+fprintf(stderr, "\n");
+    return 0;
+}
+
+//-1 0 2- error, success, no item in cache is ready TODO correct
+int getcachedread(sam_cond_t *c, sam_hdr_t *h, bam1_t *b)
+{
+    rc_item_t *s = NULL;
+    if (c->rc.csts != CACHE_READY || !c->rc.head)
+        return c->rc.head ? CACHE_NREADY : CACHE_EOF;
+    while (c->rc.head && c->rc.head->sts != UNKNOWN) {
+        s = c->rc.head->next;
+        if (c->rc.head->sts == SELECTED) {
+            fprintf(stderr, "%s: selected\n", bam_get_qname(c->rc.head->b));
+            if (!bam_copy1(b, c->rc.head->b))
+                return -1;
+            //add t back to buffer
+            bam_destroy1(c->rc.head->b);
+            free(c->rc.head);
+            c->rc.head = s;
+            return 0;
+        }
+        //not required
+        bam_destroy1(c->rc.head->b);
+        free(c->rc.head);
+        c->rc.head = s;
+    }
+    return CACHE_NREADY;
+}
+//-1, 0, 1 -error, cached, cache ready
+int addtocache(sam_cond_t *c, sam_hdr_t *h, bam1_t *b)
+{
+    int ret = 0;
+    rc_item_t *t = NULL;
+    if (c->rc.cpos > b->core.pos)
+        return -1;  //not sorted!
+
+    if (!(t = getitemfrombuffer(c)))
+        return -1;  //failed to get one
+    if (!bam_copy1(t->b, b))
+        return -1;
+    t->sts = UNKNOWN;
+    if (!c->rc.head) {
+        c->rc.head = c->rc.tail = t;
+    } else {
+        c->rc.tail->next = t;
+        c->rc.tail = t;
+    }
+    //c->rc.csts = CACHED;
+    if (c->rc.ctid != t->b->core.tid) {
+        if (c->rc.ctid != -1)
+            ret = 2;    //change in tid, trigger processing
+        c->rc.cpos = t->b->core.pos;
+        c->rc.ctid = t->b->core.tid;
+        if (ret)
+            return ret;
+    }
+    if (c->rc.cpos == t->b->core.pos)
+        return 0;   //done
+    if (c->rc.cpos <= t->b->core.pos) {
+        if (c->rc.cpos != -1) {
+            //change in pos, trigger processing
+            ret = 2;    //ready for processing
+            //c->rc.csts = CACHE_READY;
+        }
+        c->rc.cpos = t->b->core.pos;
+    } //else cpos > b->core.pos
+
+    return ret;
+}
+
 // Returns 0 on success,
 //        -1 on EOF,
 //       <-1 on error
 int sam_read1(htsFile *fp, sam_hdr_t *h, bam1_t *b)
 {
     int ret, pass_filter;
-
+    int reason = -1, cret = -1;
+    sam_cond_t *c = (sam_cond_t *)fp->cond_data;
+    //TD if cache is ready get reads from cache and return
+    //TD else if input EOF return eof
+    //TD otherwise read from input
+    if (c && (c->rc.csts == CACHE_READY)) {    //cached items are ready
+        if ((cret = getcachedread(c, h, b)) < 0) {  //failed
+            return -2;
+        } else if (cret == CACHED)  //todo change name?
+            return 0;   //success
+        else if (cret == CACHE_EOF)
+            return -1;
+        //cache not ready anymore
+        c->rc.csts = CACHE_NREADY;
+    }
     do {
         switch (fp->format.format) {
         case bam:
@@ -4388,13 +4643,56 @@ int sam_read1(htsFile *fp, sam_hdr_t *h, bam1_t *b)
             pass_filter = fp->filter
                 ? sam_passes_filter(h, b, fp->filter)
                 : 1;
+            if (pass_filter && c) {     //a required read
+                //TD add read to cache
+                if ((cret = addtocache(c, h, b)) < 0) {   //failed
+                    return -2;//log?
+                } else if (cret == CACHED) {
+                    pass_filter = 0;    //go for next one
+                    c->rc.csts = CACHED;
+                    continue;   //get next one
+                }   //else cache ready
+                c->rc.csts = CACHE_READY;
+                //TD if pos changed / feof, sort cache to find best reads/select
+                //TD use sorted reads and check depth
+                //TD if enough depth, make cache ready
+                //TD get read from cache
+                //TD if not enough depth, read from input
+            }
 
-            if (pass_filter && fp->cond_data)   //extra checks if set so
-                pass_filter = check_conditions(fp, h, b);
+            // if (pass_filter && fp->cond_data)   //extra checks if set so
+            //     pass_filter = check_conditions(fp, h, b);
         } else
             pass_filter = 1;
+
+        if (c) {
+            if ((ret == -1) || cret == CACHE_READY) {
+            //if (ret == -1 || cret == CACHE_READY) {
+                //EOF or read from cache
+                if (processcache(c, h, ret == -1) < 0) //failed
+                    return -2;
+                c->rc.csts = CACHE_READY;       //forcing!
+                if ((cret = getcachedread(c, h, b)) < 0) {  //failed
+                    return -2;
+                } else if (cret != CACHED) {
+                    if (ret != -1)
+                        pass_filter = 0;
+                    continue;
+                }
+                //have read
+                pass_filter = 1;
+                if (ret == -1)
+                    ret = 0;
+            }
+            //TD if pos changed / feof, sort cache to find best reads/select
+            //TD use sorted reads and check depth
+            //TD if enough depth, make cache ready
+            //TD get read from cache
+            //TD if not enough depth, read from input
+        }
     } while (pass_filter == 0);
 
+    //fprintf(stderr, " ret %d\n", pass_filter < 0 ? -2 : ret);
     return pass_filter < 0 ? -2 : ret;
 }
 

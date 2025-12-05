@@ -117,32 +117,76 @@ static inline void nibble2base(uint8_t *nib, char *seq, int len) {
 #endif
 }
 
+typedef enum cstatus { FAILED = -1, CACHED, CACHE_NREADY, CACHE_READY, CACHE_EOF} cstatus;
+typedef enum rstatus { UNKNOWN = 0, CHECKED, SELECTED, UNSELECTED} rstatus;
+
+typedef struct rc_item_t {
+    int sts;
+    bam1_t *b;
+    struct rc_item_t *next;
+} rc_item_t;
+typedef struct rc_buffer_t {
+    int m, n;
+    rc_item_t *buf, *head, *tail;
+} rc_buffer_t;
+
+typedef struct read_cache_t {
+    hts_pos_t spos, epos, cpos;
+    int ctid;
+    cstatus csts;
+    rc_item_t *head, *tail;
+    rc_buffer_t *buf;
+} read_cache_t;
+
 /// holds data for extra condition checks
 typedef struct sam_cond_t {
     int tid, maxdepth;
     //buffer to hold depth data
     hts_pos_t bufstart, bufend;
     kstring_t ksbuf;
+
+    read_cache_t rc;
 } sam_cond_t;
 
 /// allocates condition data
 /// returns the allocated data on success and NULL on failure
 static inline sam_cond_t* sam_cond_init(void)
 {
+    int i = 0;
     sam_cond_t *c = calloc(1, sizeof(sam_cond_t));
     if (!c) {
         hts_log_warning("Couldn't create condition data");
         return NULL;
     }
+    c->rc.cpos = c->rc.ctid = -1;
+    /*c->rc.buf->m = 32;
+    c->rc.buf->n = 0;
+    c->rc.buf = calloc(c->rc.buf->m, sizeof(rc_item_t));
+    for (i = c->rc.buf->n; i < c->rc.buf->m; ++i) {
+        c->rc.buf->buf[i].sts = 0;
+        if (i != c->rc.buf->m - 1)
+            c->rc.buf->buf[i].next = &c->rc.buf->buf[i + 1];
+        else
+            c->rc.buf->buf[i].next = NULL;
+        if (!(c->rc.buf->buf[i].b = bam_init1())) {
+            return NULL;
+        }
+    }*/
     return c;
 }
 
 /// deallocates condition data
 static inline void sam_cond_destroy(sam_cond_t *c)
 {
+    int i;
     if (!c)
         return;
     ks_free(&c->ksbuf);
+
+    /*for (i = 0; i < c->rc.buf->m; ++i) {
+        bam_destroy1(c->rc.buf->buf[i].b);
+    }*/
+    //free(c->rc.buf);    //todo move to destroy method in sam.c
     free(c);
 }
 
