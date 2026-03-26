@@ -1216,6 +1216,9 @@ int hts_opt_add(hts_opt **opts, const char *c_arg) {
         strcmp(o->arg, "FASTQ_UMI_REGEX") == 0)
         o->opt = FASTQ_OPT_UMI_REGEX, o->val.s = val;
 
+    else if (strcmp(o->arg, "hts_maxdepth") == 0 ||
+        strcmp(o->arg, "HTS_MAXDEPTH") == 0)
+        o->opt = HTS_OPT_MAXDEPTH, o->val.i = atoi(val);
     else {
         hts_log_error("Unknown option '%s'", o->arg);
         free(o->arg);
@@ -1636,6 +1639,92 @@ error:
 
 static int hts_idx_close_otf_fp(hts_idx_t *idx);
 
+
+int setupcache(htsFile *fp, int wndsz, int maxdpth)
+{
+    int i, j;
+    rc_t *c = (rc_t*)fp->c;
+    ce_t *elem = NULL, *tail = NULL;
+    const int inc = 1024;
+    if (!c) { //create cache
+        if (!(c = calloc(1, sizeof(rc_t))))
+            goto fail;
+        fp->c = c;
+    }
+
+    if (!(c->cache.p = malloc(sizeof(ce_t*))))
+        goto fail;
+    if((elem = calloc(inc, sizeof(ce_t)))) {
+        c->cache.p[c->cache.n++] = elem;
+        c->cache.head = tail = elem;
+        if (!(elem->r = bam_init1()))
+            goto fail;
+        ks_initialize(&elem->log);
+        for (i = 1; i < inc; ++i) {
+            if (!((elem + i )->r = bam_init1()))
+                goto fail;
+            ks_initialize(&(elem+i)->log);
+            tail->next = elem + i;
+            tail = tail->next;
+        }
+        c->cache.m += inc;
+        c->cache.f += inc;
+        c->cache.tail = tail;
+    } else
+        goto fail;
+
+    c->wndsz = wndsz;
+    c->maxdpth = maxdpth;
+    c->w_st = c->w_en = -1;
+    c->tid = -2;    //start
+    c->selpair = kh_init(kh_pair);
+    return 0;
+
+fail:
+    if (c) {
+        for (i = 0; i < c->cache.n; ++i) {
+            elem = c->cache.p[i];
+            for (j = 0; j < inc; ++j) {
+                bam_destroy1(elem[j].r);
+                ks_free(&(elem[j].log));
+            }
+            free(elem);
+        }
+        free(c->cache.p);
+        free(c);
+        fp->c = NULL;
+    }
+    return 1;
+}
+
+void destroycache(htsFile *fp)
+{
+    int i, j;
+    const int inc = 1024;
+    ce_t *elem = NULL;
+    rc_t *c = (rc_t*) fp->c;
+    if(!c)
+        return;
+    for (khint_t iter = kh_begin(c->selpair); iter != kh_end(c->selpair); ++iter) {
+        if (kh_exist(c->selpair, iter)) {
+            kh_del(kh_pair, c->selpair, iter);
+        }
+    }
+    for (i = 0; i < c->cache.n; ++i) {
+        elem = c->cache.p[i];
+        for (j = 0; j < inc; ++j) {
+            bam_destroy1(elem[j].r);
+            ks_free(&elem[j].log);
+        }
+        free(elem);
+    }
+    free(c->cache.p);
+    free(c->dpth);
+    kh_destroy(kh_pair, c->selpair);
+    free(c);
+    fp->c = NULL;
+}
+
 int hts_close(htsFile *fp)
 {
     int ret = 0, save;
@@ -1701,6 +1790,7 @@ int hts_close(htsFile *fp)
     sam_hdr_destroy(fp->bam_header);
     hts_idx_destroy(fp->idx);
     hts_filter_free(fp->filter);
+    destroycache(fp);
     free(fp->fn);
     free(fp->fn_aux);
     free(fp->line.s);
@@ -1900,6 +1990,24 @@ int hts_set_opt(htsFile *fp, enum hts_fmt_option opt, ...) {
 #endif
             }
         } // else CRAM manages this in its own way
+        break;
+    }
+
+    case HTS_OPT_MAXDEPTH: {
+        va_start(args, opt);
+        int dpth = va_arg(args, int);
+        va_end(args);
+        // int wndsz = dpth >> 8;
+        // if (wndsz <= 0)
+        //     wndsz = 350;
+        // dpth = dpth & 0x00FF;   //upto 65535
+        //todo check whether sorted by pos and setup only if so
+        if (dpth > 0)
+            if(setupcache(fp, 3500, dpth)) {
+            hts_log_warning("Failed to setup hts cache.\n");
+            return 0;
+        }
+        //hts_log_warning("wnd %d dpth %d\n", wndsz, dpth);
         break;
     }
 

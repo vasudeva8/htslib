@@ -32,6 +32,7 @@ DEALINGS IN THE SOFTWARE.  */
 #include <sys/types.h>
 #include "hts.h"
 #include "hts_endian.h"
+#include "htslib/khash.h"
 
 // Ensure ssize_t exists within this header. All #includes must precede this,
 // and ssize_t must be undefined again at the end of this header.
@@ -330,6 +331,43 @@ typedef struct bam1_t {
  @param b   Base in nt16 nomenclature (see seq_nt16_table)
 */
 #define bam_set_seqi(s,i,b) ((s)[(i)>>1] = ((s)[(i)>>1] & (0xf0 >> ((~(i)&1)<<2))) | ((b)<<((~(i)&1)<<2)))
+
+
+typedef struct ce_t {//cache element
+    uint64_t ord;   //ordinal
+    bam1_t *r;
+    struct ce_t *next, *prev;
+    uint64_t len;
+    kstring_t log;
+} ce_t;
+typedef struct cache_t {//cache
+    int f, m, n;    //free, max, chunks(of 1024?)
+    ce_t **p;
+    struct ce_t *head, *tail;
+} cache_t;
+
+typedef struct pair_exp {
+    //char *rname;
+    int mtid, tid;
+    hts_pos_t mpos, pos;
+} pair_exp;
+
+//KHASH_MAP_INIT_INT64(kh_pair, pair_exp)
+KHASH_MAP_INIT_STR(kh_pair, pair_exp)
+
+typedef struct rc_t {
+    cache_t cache;  //cache of mem space
+    ce_t *head, *tail;  //alignments
+    ce_t *head_sel, *tail_sel;  //selected alignments
+    ce_t *head_nsel, *tail_nsel;  //non-selected alignments
+    uint64_t ord;   //last ordinal
+    int trgr;  //sts: 0 not ready 1 caching 2 wnd full 3 ready 4 end
+    int wndsz, maxdpth;
+    hts_pos_t w_st, w_en;
+    khash_t(kh_pair) *selpair;
+    int dp_sz, /*dp_st,*/ dp_en, tid;
+    int *dpth;
+} rc_t;
 
 /**************************
  *** Exported functions ***
