@@ -360,6 +360,8 @@ typedef struct rc_t {
     ce_t *head, *tail;  //alignments
     ce_t *head_sel, *tail_sel;  //selected alignments
     ce_t *head_nsel, *tail_nsel;  //non-selected alignments
+    ce_t *head_ins, *tail_ins;  //inserted alignments
+    uint64_t selcnt, nselcnt, inscnt,rcnt;
     uint64_t ord;   //last ordinal
     int trgr;  //sts: 0 not ready 1 caching 2 wnd full 3 ready 4 end
     int wndsz, maxdpth;
