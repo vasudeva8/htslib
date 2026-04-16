@@ -68,16 +68,14 @@ KHASH_SET_INIT_INT(tag)
 #define EOVERFLOW ERANGE
 #endif
 
-#if 1
+#if 0
 FILE *fp1 = NULL;
-//#define LG(...) {if (!fp1) fp1 = fopen("/tmp/op","w"); if (fp1) { fprintf(fp1, __VA_ARGS__);}}
-#define LG(...)
-#define LG1(...) {if (!fp1) fp1 = fopen("/tmp/op","w"); if (fp1) { fprintf(fp1, __VA_ARGS__);}}
+#define LG(...) {if (!fp1) fp1 = fopen("/tmp/op","w"); if (fp1) { fprintf(fp1, __VA_ARGS__);}}
+#define LGlog(s,...) ksprintf(s,__VA_ARGS__)
 #else
-#define LG(...)
-#define LG1(...)
-#define LG2(...)
-#endif //0
+#define LG(...) ;
+#define LGlog(s,f,...) ;
+#endif //1/0
 /**********************
  *** BAM header I/O ***
  **********************/
@@ -4273,19 +4271,22 @@ static int updatedepth(rc_t *c, ce_t *e, int chk)
     uint32_t *cgr = bam_get_cigar(e->r), i, j;
     int clen, off, req = 0;
     hts_pos_t st, en, len = 0;
-    //char szCg[1024] ={0};
     if (!c->dpth) { //setup depth buffer
         c->dp_sz = c->wndsz;
         if (!(c->dpth = calloc(c->dp_sz, sizeof(int))))
             goto fail;
-        //c->dp_st = e->r->core.pos; c->dp_en = c->dp_st + c->dp_sz; off = 0;
-        //c->dp_st = c->w_st; c->dp_en = c->dp_st + c->dp_sz; off = 0;
         c->dp_en = c->w_st + c->dp_sz; off = 0;
     }
     dpth = c->dpth;
     st = c->w_st; en = c->dp_en;
-    if (st > e->r->core.pos) //wnd may move and an older one may get inserted?
-        goto fail;  //not sorted?   //todo chk whther this is true or not, considring multiple tids in a file
+    if (st > e->r->core.pos)
+        goto fail;  //not sorted?
+    if (e->len > c->inc_sz) {   //grow increment buffer as required
+        c->inc = realloc(c->inc, sizeof(int) * e->len);
+        c->inc_sz = e->len;
+        for(i = 0; i < c->inc_sz; ++i)
+            *(c->inc + i) = 1;
+    }
     off = e->r->core.pos - st;
     {
         len = off + e->len;
@@ -4294,7 +4295,6 @@ static int updatedepth(rc_t *c, ce_t *e, int chk)
             if (!(dpth = realloc(c->dpth, (len+c->dp_sz) * sizeof(int)))) {
                 goto fail;
             }
-            //printf("allocated %d %lld-%lld\n", len+c->dp_sz, c->w_st, c->w_st+len+c->dp_sz );
             memset(dpth + c->dp_sz, 0, len * sizeof(int));
             c->dp_sz += len;
             c->dpth = dpth;
@@ -4302,73 +4302,46 @@ static int updatedepth(rc_t *c, ce_t *e, int chk)
         }
         len = 0;
     }
-    //static kstring_t lg = KS_INITIALIZE;
-    //uint64_t str = -1,end = -1;
-    //ks_clear(&lg);
     if (chk) {  //check depth
-       //printf("c %"PRIhts_pos" - %"PRIhts_pos"\n", st, en);
-        //for (hts_pos_t z = st; z < en; ++z)
-        //    printf("%d ", dpth[z]);
-        //printf("\n");
+        //FILE *fpy = fopen("/tmp/dpchk.csv", "a");
+        //fprintf(fpy,"%lld,%lld:,", e->ord, c->w_st+off);
         for (i = 0; i < e->r->core.n_cigar; ++i) {
-            //printf("%c%d ", BAM_CIGAR_STR[bam_cigar_op(cgr[i])], bam_cigar_oplen(cgr[i]));
-            //sprintf(szCg+strlen(szCg), "%c%d ", BAM_CIGAR_STR[bam_cigar_op(cgr[i])], bam_cigar_oplen(cgr[i]));
-            //todo, should we use those consume ref? or query?
             if (!(bam_cigar_type(bam_cigar_op(cgr[i])) & 2)) {   //not consuming ref
-                //printf(" 0 ");
-                //ksprintf(&lg, "..");
                 continue;
             }
             //deletion is counted!
-            //ksprintf(&lg, "%c%d", BAM_CIGAR_STR[bam_cigar_op(cgr[i])], bam_cigar_oplen(cgr[i]));
-            //if (str == -1)
-            //    str = c->w_st + off;
             clen = bam_cigar_oplen(cgr[i]);
             for (j = 0; j < clen; ++j) {
                 req |= dpth[off + j] + 1 <= c->maxdpth;
+                //fprintf(fpy,"%lld,%d,", c->w_st+off+j, dpth[off + j]+1);
             }
-            //printf(":%d ", req);
             off += clen;
             if (req) {  //required, no need to check further
-                //end = str+off;
-                //sprintf(szCg, "%lld - %lld=%d:", str, end, end - str);
-                //fprintf(fp1,"\n%s %s\n", szCg, lg.s);
-                //LG("\n%s %s\n", szCg, lg.s);
+                //fprintf(fpy,",%lld, YES\n", c->w_st+off);
+                //fclose(fpy);
                 break;
             }
-            //end = str+off;
-            //sprintf(szCg, "%lld - %lld=%d:", str, end, end - str);
-            //fprintf(fp1,"\n%s %s\n", szCg, lg.s);
-            //LG("\n%s %s\n", szCg, lg.s);
         }
-        //printf("\n");
+        //fprintf(fpy,",%lld,NO\n", c->w_st+off);
+        //fclose(fpy);
     } else {    //update depth
         req = 1;
+        // FILE *fpx = fopen("/tmp/dp1.csv", "a");
+        // fprintf(fpx,"%lld,%lld:,", e->ord, c->w_st+off);
         for (i = 0; i < e->r->core.n_cigar; ++i) {
-            //sprintf(szCg+strlen(szCg), "%c%d ", BAM_CIGAR_STR[bam_cigar_op(cgr[i])], bam_cigar_oplen(cgr[i]));
             if (!(bam_cigar_type(bam_cigar_op(cgr[i])) & 2)) {   //not consuming ref
                 continue;
             }
-            //ksprintf(&lg, "%c%d", BAM_CIGAR_STR[bam_cigar_op(cgr[i])], bam_cigar_oplen(cgr[i]));
-            // if (str == -1)
-            //     str = c->w_st + off;
             clen = bam_cigar_oplen(cgr[i]);
             for (j = 0; j < clen; ++j) {
-                dpth[off + len + j]++;
+                dpth[off + len + j] += c->inc[j];
+                //fprintf(fpx,"%d,", dpth[off + len + j]);
             }
             len += clen;
-            //off += clen;
         }
-        // printf("u %"PRIhts_pos" - %"PRIhts_pos"\n", st, en);
-        // for (int z = 0; z < en-st; ++z)
-        //     printf("%d ", dpth[z]);
-        //printf("\n");
-        //end = str+len;
-        //sprintf(szCg, "%lld - %lld=%d:", str, end, end - str);
-        //fprintf(fp1,"\n%s %s\n", szCg, lg.s);
-        //LG("\n%s %s\n", szCg, lg.s);
+        // fprintf(fpx,",%lld\n", c->w_st+off + len);
+        // fclose(fpx);
     }
-    //fclose(fp1);
     if (req)
         return 1;
     return 0;
@@ -4392,12 +4365,7 @@ static int retcache(rc_t *c, ce_t* elem)
             kh_del(kh_pair, c->selpair, it);
         }
     }
-    LG1("LG ret %lld %s\n", elem->ord, elem->log.s);
-    //LG1("ret %lld %s %p %p %p\n", elem->ord, elem->log.s, elem->prev, elem, elem->next);
-    //todo reset bam data?
-    //memset(elem->r->data, 0, elem->r->m_data);
-    //memset(&elem->r->core, 0, sizeof(elem->r->core));
-    //elem->next = NULL;
+    LG("LG ret %"PRIu64" %s\n", elem->ord, elem->log.l?elem->log.s:"");
     elem->prev = NULL;
     elem->ord = 0;
     elem->len = 0;
@@ -4405,11 +4373,9 @@ static int retcache(rc_t *c, ce_t* elem)
     c->cache.head->prev = elem;
     c->cache.head = elem;
     ++c->cache.f;
-    assert(c->cache.m == c->cache.f+c->rcnt+c->inscnt+c->selcnt+c->nselcnt);
+    //assert(c->cache.m == c->cache.f+c->rcnt+c->inscnt+c->selcnt+c->nselcnt);
     ks_clear(&elem->log);
 
-   /*bam_destroy1(elem->r);
-   ks_free(&elem->log);*/
     return 0;
 }
 static ce_t* getcache(htsFile *fp)
@@ -4423,12 +4389,10 @@ static ce_t* getcache(htsFile *fp)
             return NULL;
         fp->c = c;
     }
-    //LG1("get ");
-    assert(c->cache.m == c->cache.f+c->rcnt+c->inscnt+c->selcnt+c->nselcnt);
     if (c->cache.f <= 1) { //grow cache
-        if(c->cache.f == 1) {
-            assert(c->cache.head == c->cache.tail);
-        }
+        // if(c->cache.f == 1) {
+        //     assert(c->cache.head == c->cache.tail);
+        // }
         if (!(p = realloc(c->cache.p, (c->cache.n + 1) * sizeof(ce_t*))))
             return NULL;
         c->cache.p = p;
@@ -4454,11 +4418,12 @@ static ce_t* getcache(htsFile *fp)
             c->cache.m += inc;
             c->cache.f += inc;
             c->cache.tail = tail;
-            assert(!c->cache.tail->next);
-            assert(c->cache.tail == elem+(i?i-1:0));
+            // assert(!c->cache.tail->next);
+            // assert(c->cache.tail == elem+(i?i-1:0));
         } else
             return NULL;
     }
+    // assert(c->cache.m == c->cache.f+c->rcnt+c->inscnt+c->selcnt+c->nselcnt);
     ret = c->cache.head;
     c->cache.head = c->cache.head->next;
     c->cache.head->prev = NULL;
@@ -4466,28 +4431,23 @@ static ce_t* getcache(htsFile *fp)
     ret->next = NULL;
     --c->cache.f;
     //assert(c->cache.m == c->cache.f+c->rcnt+c->inscnt+c->selcnt+c->nselcnt);
-    /*
-    ret = calloc(1, sizeof(ce_t));
-    ret->r = bam_init1();
-    ks_initialize(&ret->log);
-    */
    return ret;
 }
 //addtocache; return 0 on caching, 1 on cache ready to process and <0 on error
-static int addtoreadcache(htsFile *fp, bam1_t *b)
+static int addtoreadcache(htsFile *fp, ce_t *e)
 {
-    ce_t *e = NULL;
     rc_t *c = fp->c;
-    if (!(b->core.flag & BAM_FUNMAP)) {
-        /*if (c->w_st > b->core.pos) {   //outside the window
-            return -1;  //not sorted?; todo probably this check may not hold when there are multiple tids involved with later one starting from an earlier pos!
-        } else*/ if (c->w_st == -1) {
-            c->w_st = b->core.pos;    //starting
+    int unmap = 0;
+    if (!(e->r->core.flag & BAM_FUNMAP)) {
+        if (c->w_st == -1) {
+            c->w_st = c->head ? c->head->r->core.pos : e->r->core.pos;    //starting
             c->w_en = c->w_st + c->wndsz;
             c->dp_en = c->w_st + c->dp_sz;
         }
+    } else {
+        unmap = 1;
     }
-    assert(c->cache.m == c->cache.f+c->rcnt+c->inscnt+c->selcnt+c->nselcnt);
+    //assert(c->cache.m == c->cache.f+1+c->rcnt+c->inscnt+c->selcnt+c->nselcnt);
 #if 0
     int fid = b->core.pos / 16000;
     int off = b->core.pos % 16000;
@@ -4521,27 +4481,26 @@ static int addtoreadcache(htsFile *fp, bam1_t *b)
         fclose(fpd);
     }
 #endif //0
-    e = getcache(fp);
-    if (!e) {
-        return -1;
-    }
     e->ord = ++(c->ord);
-    LG1("+ %s %lld\t\t%lld %lld %lld\n", bam_get_qname(b), e->ord, c->w_st, b->core.pos, c->w_en);
-    //fclose(fp1);
-    if (!bam_copy1(e->r, b))
-        return -1;
     e->len = bam_cigar2rlen(e->r->core.n_cigar, bam_get_cigar(e->r));
+    LG("+ %s %"PRIu64"\t\t%"PRIhts_pos" %"PRIhts_pos" %"PRIu64" %"PRIhts_pos"\n", bam_get_qname(e->r), e->ord, c->w_st, e->r->core.pos, e->len, c->w_en);
     if (!c->head) {
         c->head = c->tail = e;
     } else {
         ce_t *p = c->tail;
-        ce_t *tmpn = NULL, *tmpp = NULL;
-        while (p && p->r->core.tid == e->r->core.tid && p->r->core.pos == e->r->core.pos && p->len < e->len) {
-            //consider flags to make sure dup/fail/sec/supp. wont mask others
-            if (p->r->core.flag>>8 > e->r->core.flag>>8)
-                p = p->prev;
-            else
-                break;
+        ce_t *tmpn = NULL;
+        if (!unmap) {
+            while (p && p->r->core.tid == e->r->core.tid && p->r->core.pos == e->r->core.pos && p->len <= e->len) {
+                //consider flags to make sure dup/fail/sec/supp. wont mask others
+                if (p->r->core.flag>>8 >= e->r->core.flag>>8) {
+                    LG("\t%"PRIu64" %d - %"PRIu64" %d, continuing\n", p->ord, p->r->core.flag, e->ord, e->r->core.flag);
+                    p = p->prev;
+                }
+                else {
+                    LG("\t%"PRIu64" %d %"PRIu64" %d, break\n", p->ord, p->r->core.flag, e->ord, e->r->core.flag);
+                    break;
+                }
+            }
         }
         if (p) {
             tmpn = p->next;
@@ -4569,19 +4528,18 @@ static int addtoreadcache(htsFile *fp, bam1_t *b)
     }
     ++c->rcnt;
     //todo do we need a limit on max no of items that are cached? like the whole file is for same pos, probably cant be loaded! todo see
-    if (c->w_en < b->core.pos) {  //post window, p:rocess and advance
-        LG1("wnd full\n");
+    if (c->w_en < e->r->core.pos) {  //post window, p:rocess and advance
+        LG("wnd full\n");
         c->trgr = 2; //wnd full, go for processing
-    } else if (c->tid != b->core.tid && c->tid != -2) {
-        LG1("tid change\n");
+    } else if (c->tid != e->r->core.tid && c->tid != -2) {
+        LG("tid change\n");
         c->trgr = 3; //ready for processing
     }
     else
         c->trgr = 1;    //caching
-    c->tid = b->core.tid;
-    assert(c->cache.m == c->cache.f+c->rcnt+c->inscnt+c->selcnt+c->nselcnt);
-    ksprintf(&e->log, "%s,%lld,added,%lld,%lld,%lld,%lld,", bam_get_qname(b), e->ord,b->core.pos+1, b->core.mpos+1,e->len, e->len+e->r->core.pos+1);
-    //fclose(fp1);
+    c->tid = e->r->core.tid;
+    //assert(c->cache.m == c->cache.f+c->rcnt+c->inscnt+c->selcnt+c->nselcnt);
+    LGlog(&e->log, "%s,%"PRIu64",added,%d,%"PRIhts_pos",%"PRIhts_pos",%"PRIu64",%"PRIhts_pos",", bam_get_qname(e->r), e->ord,e->r->core.flag,e->r->core.pos+1, e->r->core.mpos+1,e->len, e->len+e->r->core.pos+1);
     return 0;
 }
 
@@ -4592,11 +4550,9 @@ static int getfromreadcache(htsFile *fp, bam1_t *b)
     if (!c || c->trgr < 3) {    //either ready or end
         return 0;
     }
-    assert(c->cache.m == c->cache.f+c->rcnt+c->inscnt+c->selcnt+c->nselcnt);
+    //assert(c->cache.m == c->cache.f+c->rcnt+c->inscnt+c->selcnt+c->nselcnt);
     //todo at somepoint, removal from selpair need to be done based on pos as well
-    static uint64_t ord = 0;
-    uint64_t old, sel = UINT64_MAX, ins = UINT64_MAX;
-    //fprintf(stderr, "+");
+    uint64_t sel = UINT64_MAX, ins = UINT64_MAX;
     ce_t *e = c->head_sel, *f = c->head_ins, *p = NULL;
     if (e)
         sel = e->ord;
@@ -4615,8 +4571,6 @@ static int getfromreadcache(htsFile *fp, bam1_t *b)
             c->head_sel = p->next;
             if (!c->head_sel) {
                 c->tail_sel = NULL;
-                if (c->trgr != 4)
-                    c->trgr = 0;    //not ready
             }
         }
         else {
@@ -4624,18 +4578,19 @@ static int getfromreadcache(htsFile *fp, bam1_t *b)
             c->inscnt--;
             if (!c->head_ins) {
                 c->tail_ins = NULL;
-                if (c->trgr != 4)
-                   c->trgr = 0;    //not ready
             }
         }
-        old = p->ord;
-
-        ksprintf(&p->log, ",retrieved");
+        if (!c->head_sel && !c->head_ins && c->trgr != 4)
+            c->trgr = 0;    //not ready
+        else {
+            if (c->head_sel) hts_prefetch(c->head_sel);
+            if (c->head_ins) hts_prefetch(c->head_ins);
+        }
+        LG("- %s %"PRIu64"\n", bam_get_qname(b), p->ord);
+        LGlog(&p->log, "%s", ",retrieved");
         retcache(c, p);
-        assert(c->cache.m == c->cache.f+c->rcnt+c->inscnt+c->selcnt+c->nselcnt);
-        ord++;
+        //assert(c->cache.m == c->cache.f+c->rcnt+c->inscnt+c->selcnt+c->nselcnt);
 
-        LG1("- %s %lld (%lld)\n", bam_get_qname(b), old, ord);
         return 1;
     }
     return 0;
@@ -4646,6 +4601,8 @@ static inline ce_t* find_nsel(rc_t *c, ce_t *e, ce_t **ep)
     ce_t *s = c->head_nsel;
     *ep = NULL;
     while (s) {
+        if (s->next)
+            hts_prefetch(s->next->r);
         if (s->ord > e->ord)
             break;  //not found
         if (s->r->core.pos == e->r->core.mpos &&
@@ -4659,11 +4616,11 @@ static inline ce_t* find_nsel(rc_t *c, ce_t *e, ce_t **ep)
     return NULL;
 }
 
-static inline void moveread1(rc_t *c, ce_t *ep, ce_t *e, ce_t* en, int sel, int ins)
+static inline void moveread(rc_t *c, ce_t *ep, ce_t *e, ce_t* en, int sel, int ins)
 {
-    int paired = (e->r->core.flag & BAM_FPAIRED) && !(e->r->core.flag & BAM_FMUNMAP) && e->r->core.mtid != -1 && e->r->core.mpos != -1;
+    int paired = (e->r->core.flag & BAM_FPAIRED) && !(e->r->core.flag & BAM_FUNMAP) && !(e->r->core.flag & BAM_FMUNMAP) && e->r->core.mtid != -1 && e->r->core.mpos != -1;
     if (!ins) { //remove from cache
-        assert(c->head == e);
+        //assert(c->head == e);   //always be head as they are moved to either selected or nsel
         if (en)
             en->prev = e->prev;
         c->head = en;
@@ -4690,11 +4647,11 @@ static inline void moveread1(rc_t *c, ce_t *ep, ce_t *e, ce_t* en, int sel, int 
     e->prev = NULL;
 
     if (sel) {
-        LG1("mv %lld sel\n", e->ord);
+        LG("mv %"PRIu64" sel\n", e->ord);
         ins ? c->inscnt++ : c->selcnt++;
-        //insert in required pos
+        //insert in required pos, starting from tail
             ce_t *s = ins? c->tail_ins : c->tail_sel, *p = NULL;
-            if (s && s->ord < e->ord) {
+            if (s && s->ord < e->ord) { //shortcut
                 s->next = e;
                 e->next = NULL;
                 e->prev = s;
@@ -4705,22 +4662,25 @@ static inline void moveread1(rc_t *c, ce_t *ep, ce_t *e, ce_t* en, int sel, int 
                 return;
             }
             while (s) {
-                if (s->ord < e->ord) {
+                if (s->ord < e->ord) {  //add in ascending order
                     break;
                 }
                 s = s->prev;
             }
-            if (!s) {
-                p = ins?c->head_ins:c->head_sel;
-                if (ins)
+            if (!s) {   //as head
+                if (ins) {
+                    p = c->head_ins;
                     c->head_ins = e;
-                else
+                }
+                else {
+                    p = c->head_sel;
                     c->head_sel = e;
+                }
                 e->prev = NULL;
                 e->next = p;
                 if(p)
                     p->prev = e;
-                if (!p) {
+                else {  //update tail
                     if (ins)
                         c->tail_ins = e;
                     else
@@ -4737,51 +4697,12 @@ static inline void moveread1(rc_t *c, ce_t *ep, ce_t *e, ce_t* en, int sel, int 
                 return;
             }
             return;
-
-            /*if (!ins) {
-                //add to selected list
-                if (c->tail_sel) {
-                    c->tail_sel->next = e;
-                } else {
-                    c->head_sel = e;
-                }
-                c->tail_sel = e;
-            } else {    //insert in required pos
-                ce_t *s = c->head_sel, *p = NULL;
-                if (s && s->ord > e->ord) {
-                    e->next = c->head_sel;
-                    c->head_sel = e;
-                    return;
-                }
-                while (s) {
-                    if (s->ord < e->ord) {
-                        p = s;
-                        s = s->next;
-                        continue;
-                    } else {
-                        if (p) {
-                            e->next = p->next;
-                            p->next = e;
-                            return;
-                        }
-                    }
-                    p = s;
-                    s = s->next;
-                }
-                if (!p) {
-                    c->head_nsel = c->tail_nsel = e;
-                } else {
-                    p->next = e;
-                    c->tail_nsel = e;
-                }
-                e->next = NULL;
-                return;
-            }*/
-    } else if (paired) {
+    } else if (paired) {    //move to nsel if paired, otherwise discard and return cache
         c->nselcnt++;
-        LG1("mv %lld nsel\n", e->ord);
+        LG("mv %"PRIu64" nsel\n", e->ord);
         //add to non-selected list, for pair lookup
         ce_t *s = c->tail_nsel, *p = NULL;
+        //assert (!s || s->r->core.tid == e->r->core.tid);
         if (s && s->r->core.pos < e->r->core.pos) {   //shortcut
             s->next = e;
             e->next = NULL;
@@ -4789,14 +4710,14 @@ static inline void moveread1(rc_t *c, ce_t *ep, ce_t *e, ce_t* en, int sel, int 
             c->tail_nsel = e;
             return;
         }
-        //find pos and fit, in order of increasing mpos, that it is easy to remove
+        //find pos and fit, in order of increasing pos, that it is easy to remove
         while (s) {
             if (s->r->core.pos < e->r->core.pos) {
                 break;
             }
             s = s->prev;
         }
-        if (!s) {
+        if (!s) {   //add as head
             p = c->head_nsel;
             c->head_nsel = e;
             e->prev = NULL;
@@ -4805,7 +4726,6 @@ static inline void moveread1(rc_t *c, ce_t *ep, ce_t *e, ce_t* en, int sel, int 
                 p->prev = e;
             if (!p)
                 c->tail_nsel = e;
-
             return;
         } else {
             p = s->next;
@@ -4816,179 +4736,20 @@ static inline void moveread1(rc_t *c, ce_t *ep, ce_t *e, ce_t* en, int sel, int 
                 p->prev = e;
             return;
         }
-        //adds in order as in inuput - why? pos order it should be that it is easy to remove
-        /*why ins is here?ce_t *s = ins?c->tail_ins : c->tail_nsel, *p = NULL;
-        if (s && s->ord < e->ord) {
-            s->next = e;
-            e->next = NULL;
-            e->prev = s;
-            if (ins) c->tail_nsel = e;
-            else c->tail_ins = e;
-            return;
-        }
-        while (s) {
-            if (s->ord < e->ord) {
-                break;
-            }
-            s = s->prev;
-        }
-        if (!s) {
-            if(!ins) {
-                p = c->head_nsel;
-                c->head_nsel = e;
-            }
-            else {
-                p = c->head_ins;
-                c->head_ins = e;
-            }
-            e->prev = NULL;
-            e->next = p;
-            if(p)
-                p->prev = e;
-            if (!p && !ins)
-                c->tail_nsel = e;
-            if (!p && ins)
-                c->tail_ins = e;
-            return;
-        } else {
-            p = s->next;
-            s->next = e;
-            e->prev = s;
-            e->next = p;
-            if (p)
-                p->prev = e;
-            return;
-        }*/
-        /*//add in order of pos, that it is easy to find
-        ce_t *s = c->tail_nsel, *p = NULL;
-        if (s && s->r->core.pos < e->r->core.pos) {   //shortcut
-            s->next = e;
-            e->next = NULL;
-            e->prev = s;
-            c->tail_nsel = e;
-            return;
-        }
-        //find pos and fit, in order of increasing mpos, that it is easy to remove
-        while (s) {
-            if (s->r->core.pos < e->r->core.pos) {
-                break;
-            }
-            s = s->prev;
-        }
-        LG("nsel p %lld: %lld->%lld->%lld\n", e->ord, e->prev?e->prev->r->core.pos:0, e->r->core.pos, e->next?e->next->r->core.pos:0);
-        if (!s) {
-            p = c->head_nsel;
-            c->head_nsel = e;
-            e->prev = NULL;
-            e->next = p;
-            if(p)
-                p->prev = e;
-            if (!p)
-                c->tail_nsel = e;
-
-            LG("nsel 0 a %lld: %lld->%lld->%lld\n", e->ord, e->prev?e->prev->r->core.pos:0, e->r->core.pos, e->next?e->next->r->core.pos:0);
-            return;
-        } else {
-            p = s->next;
-            s->next = e;
-            e->prev = s;
-            e->next = p;
-            if (p)
-                p->prev = e;
-            LG("nsel s a %lld: %lld->%lld->%lld\n", e->ord, e->prev?e->prev->r->core.pos:0, e->r->core.pos, e->next?e->next->r->core.pos:0);
-            return;
-        }*/
         return;
     } else { //non selected, non paired reads, release them
+        LGlog(&e->log, "%s", "npair,,,disc");
         retcache(c, e);
         return;
     }
 }
-/*
-static inline void moveread(rc_t *c, ce_t *ep, ce_t *e, ce_t* en, int sel, int ins)
-{
-    int paired = (e->r->core.flag & BAM_FPAIRED) && !(e->r->core.flag & BAM_FMUNMAP);
-    // if (e->ord == 480)
-    //     printf("move 480\n");
-    if (!ins) { //renive from cache
-        assert(c->head == e);
-        if (en)
-            en->prev = e->prev;
-        c->head = en;
-        if (!c->head)
-            c->tail = c->head;
-    } else { //remove from nsel
-        if (ep)
-            ep->next = en;
-        else {
-            c->head_nsel = en;
-        }
-        if (!en)
-            c->tail_nsel = ep ? ep : NULL;
-    }
-    e->next = NULL;
-    e->prev = NULL;
 
-    if (sel) {
-        if (!ins) {
-            //add to selected list
-            if (c->tail_sel) {
-                c->tail_sel->next = e;
-            } else {
-                c->head_sel = e;
-            }
-            c->tail_sel = e;
-        } else {    //insert in required pos
-            ce_t *s = c->head_sel, *p = NULL;
-            if (s && s->ord > e->ord) {
-                e->next = c->head_sel;
-                c->head_sel = e;
-                return;
-            }
-            while (s) {
-                if (s->ord < e->ord) {
-                    p = s;
-                    s = s->next;
-                    continue;
-                } else {
-                    if (p) {
-                        e->next = p->next;
-                        p->next = e;
-                        return;
-                    }
-                }
-                p = s;
-                s = s->next;
-            }
-            if (!p) {
-                c->head_nsel = c->tail_nsel = e;
-            } else {
-                p->next = e;
-                c->tail_nsel = e;
-            }
-            e->next = NULL;
-            return;
-        }
-    } else if (paired) {
-        //add to non-selected list, for pair lookup
-        if (c->tail_nsel) {
-            c->tail_nsel->next = e;
-        } else {
-            c->head_nsel = e;
-        }
-        c->tail_nsel = e;
-    } else { //non selected, non paired reads, release them
-        retcache(c, e);
-        return;
-    }
-}
-*/
 static inline void resetdepth(rc_t* c)
 {//printf("reset\n");
     c->w_st = -1;
     if (c->dp_sz <= 0 || !c->dpth)
         return;
-
+    LG("reset\n");
     memset(c->dpth, 0, c->dp_sz * sizeof(int));
     ce_t *en = NULL;
     //clear all from previous tid
@@ -4998,11 +4759,9 @@ static inline void resetdepth(rc_t* c)
         retcache(c, c->head);
         c->head = en;
     }
-    if (!c->head) {
-        c->tail = NULL;
-    } else {
-        c->head->prev = NULL;
-    }
+    if (!c->head) c->tail = NULL;
+    else c->head->prev = NULL;
+
     //clear whole non selected ones
     while (c->head_nsel) {
         en = c->head_nsel->next;
@@ -5010,29 +4769,55 @@ static inline void resetdepth(rc_t* c)
         retcache(c, c->head_nsel);
         c->head_nsel = en;
     }
-    if (!c->head_nsel) c->tail_nsel = NULL;
+    // assert(!c->head_nsel && !c->nselcnt);
+    // if(c->head_sel) assert(c->head_sel->r->core.tid == c->tail_sel->r->core.tid);
+    // if(c->head_nsel) assert(c->head_nsel->r->core.tid == c->tail_nsel->r->core.tid);
+    // if(c->head_ins) assert(c->head_ins->r->core.tid == c->tail_ins->r->core.tid);
+
+    LG("reset: t %"PRIu64" s %"PRIu64" i %"PRIu64" n %"PRIu64"; nxt %d\n", c->rcnt, c->selcnt,c->inscnt, c->nselcnt, c->tid);
+    //if (!c->head_nsel) c->tail_nsel = NULL;
+    //else c->head_nsel->prev = NULL;
+    c->tail_nsel = NULL;
 }
 
 //0 on success -ve on failure
 static int processcache(htsFile *fp)
 {
     rc_t *c = (rc_t*)fp->c;
-    assert(c->cache.m == c->cache.f+c->rcnt+c->inscnt+c->selcnt+c->nselcnt);
-    //start to iterate thr' all records
-    //chk in pair selected and move to selected cache and update dpth
-    //when not in pair selected, chk with depth whether this one needs to be in or out
-    //add to selected if needed and move to selected cache
-    //otherwise leave as it is, mark pairs for later selection
-    //get next and iterate the same
-    //when reached end of wndw (last one could be outside the wnd)
-    //advance window by pos 1 and release all those go out
-    //send those for that pos from selected and release them
+    // assert(c->cache.m == c->cache.f+c->rcnt+c->inscnt+c->selcnt+c->nselcnt);
+    // assert(!c->inscnt && !c->selcnt);
+    // assert(!c->head_sel && !c->tail_sel);
+    // assert(!c->head_ins && !c->tail_ins);
+
+    /* there is a window which starts at pos of 1st read and adds reads upto
+    a read past the end pos to cache. a read past the end, a tid change or end
+    of file could be a trigger to start processing the cached reads. they are
+    expected as sorted by pos and kept in descending order of reference
+    consumption (given by bam_cigar2rlen) if have same pos.
+
+    iterate through cached reads, check if it is expected as pair of an
+    earlier selected read otherwise use cigar to calc depth and decide whether
+    read is needed or not. move required reads to sel list and unwanted paired
+    ones to nsel list. check whether selected read's pair is awaited or already
+    processed based on pos values. add to selected pair hash for awaiting ones
+    and search in nsel list for already processed ones. if a pair is found, move
+    to ins list. sel and ins list are in order of reading / as in source.
+
+    processing will stop at tid change or once whole cache is processed. window
+    will be adjusted to include the read found outside the end pos. start will
+    move by same amount. if there is gap b/w start and next read, start moves to
+    that pos and end gets extended. any read which falls outside the new start
+    in nsel list is discarded.
+
+    the 1st one from sel / ins list is removed and passed until both are empty.
+    the read and processig continues with new window extremities.
+    */
     ce_t *e = c->head, *en = NULL;
     pair_exp *p = NULL;
-    khiter_t it, k;
+    khiter_t it;
     int sel = 0, ret = -1;
-    hts_pos_t cpos = e ? e->r->core.pos : 0;
     int chkpair, foundpair;
+    LG("pc: t %"PRIu64" s %"PRIu64" i %"PRIu64" n %"PRIu64"\n", c->rcnt, c->selcnt,c->inscnt, c->nselcnt);
     while (e) {
         sel = foundpair = 0;
         chkpair = (e->r->core.flag & BAM_FPAIRED) && !(e->r->core.flag & BAM_FMUNMAP);
@@ -5043,24 +4828,22 @@ static int processcache(htsFile *fp)
                 ret = 0;
                 break;   //last one / one that triggered the processing; on next iteration
             } else {    //wnd full, process and move wnd
-                hts_pos_t adj_en = c->tail ? c->tail->r->core.pos - c->w_en : 0; //last one, out of window - current end
-                hts_pos_t new_st = c->w_st + adj_en;
                 if (e->r->core.pos >= c->w_en) { //done enough
-                    LG1("* wnd full,[%lld - %lld] processed upto %lld\n", c->w_st, c->w_en, new_st);
+                    LG("* wnd full,[%"PRIhts_pos" - %"PRIhts_pos"] processed upto %"PRIhts_pos"\n", c->w_st, c->w_en, e->r->core.pos);
                     break;
                 }
             }
         }
-        //printf("checking %s ", bam_get_qname(e->r));
+        LG("* checking %s %"PRIu64"\n", bam_get_qname(e->r), e->ord);
         if (e->r->core.flag & BAM_FUNMAP) {//unmapped, select anyway
             //selectread(c, ep, e, en, 0);   //add to selected list
-            moveread1(c, NULL, e, en, 1, 0);   //add to selected list
-            LG1("* s unmap %s %lld\n", bam_get_qname(e->r), e->ord);
-            ksprintf(&e->log, "sel,umap,,");
+            moveread(c, NULL, e, en, 1, 0);   //add to selected list
+            LG("* s unmap %s %"PRIu64"\n", bam_get_qname(e->r), e->ord);
+            LGlog(&e->log, "%s", "sel,umap,,");
             e = en;
             continue;
         }
-        //ksprintf(&e->log,",");
+        //LGlog(&e->log,",");
         if (chkpair) {    //paired and mate mapped
             //have to remove from map as ce_t are freed; also they can't be modified while in cache
             if ((it = kh_get(kh_pair, c->selpair, bam_get_qname(e->r))) != kh_end(c->selpair)) {
@@ -5072,7 +4855,7 @@ static int processcache(htsFile *fp)
                         p->tid == e->r->core.mtid) {   //pair already selected
                         kh_del(kh_pair, c->selpair, it);    //remove from expected pairs
                         foundpair = 1;
-                        moveread1(c, NULL, e, en, 1, 0);   //select this
+                        moveread(c, NULL, e, en, 1, 0);   //select this
                         sel = 1;
                     } else {
                         kh_del(kh_pair, c->selpair, it);    //remove from expected pairs
@@ -5085,15 +4868,15 @@ static int processcache(htsFile *fp)
         if (!sel) {
             //check depth
             if (readrequired(c, e)) {  //read required
-                moveread1(c, NULL, e, en, 1, 0);   //select this
+                moveread(c, NULL, e, en, 1, 0);   //select this
                 sel = 1;
             }
         }
         if (sel) {
             if (updatedepth(c, e, 0) == -1)
                 goto fail;
-            LG1("* s %s %lld wnd:%lld-%lld", bam_get_qname(e->r), e->ord, c->w_st, c->w_en);
-            ksprintf(&e->log,"sel,");
+            LG("* s %s %"PRIu64" wnd:%"PRIhts_pos"-%"PRIhts_pos"", bam_get_qname(e->r), e->ord, c->w_st, c->w_en);
+            LGlog(&e->log, "%s", "sel,");
             if (chkpair && !foundpair) { //1st one or pair not selected
                 if (e->r->core.pos <= e->r->core.mpos) {    //add only if it is yet to be processed, sorted data!
                     int r = 0;
@@ -5103,45 +4886,43 @@ static int processcache(htsFile *fp)
                     pair_exp *p = &kh_val(c->selpair, it);
                     p->pos = e->r->core.pos; p->tid = e->r->core.tid;
                     p->mpos = e->r->core.mpos; p->mtid = e->r->core.mtid;
-                    LG1(" PAIR expected");
-                    ksprintf(&e->log,"paired,,");
+                    LG(" PAIR expected");
+                    LGlog(&e->log, "%s", "paired,,");
                 } else {
-                    //todo add the earlier discarded one
                     //do it after finishing the loop, to avoid issues with ep/epp...
                     //have to insert them based on ord., if not found, discard. if eq. limit there if done here.
                     ce_t *o = NULL, *op = NULL;
                     if ((o = find_nsel(c, e, &op))) {
                         if (o->r->core.pos >= c->w_st) {    //only if order can be maintained
-                            moveread1(c, op, o, o->next, 1, 1);
+                            moveread(c, op, o, o->next, 1, 1);
                             if (updatedepth(c, o, 0) == -1)
                                 goto fail;
-                            LG1(" inserted PAIR\n* s %s %lld (inspair)", bam_get_qname(o->r), o->ord);
-                            ksprintf(&o->log,"paired,inserted,");
+                            LG(" inserted PAIR\n* s %s %"PRIu64" (inspair)", bam_get_qname(o->r), o->ord);
+                            LGlog(&o->log, "%s", "paired,inserted,");
                         }
-                        ksprintf(&e->log,"paired,nsel,");
+                        LGlog(&e->log, "%s", "paired,nsel,");
                     } else {
-                        LG1(" no PAIR");
-                        ksprintf(&e->log,"paired,notfound,");
+                        LG(" no PAIR");
+                        LGlog(&e->log, "%s", "paired,notfound,");
                     }
                 }
             } else if (foundpair) {
-                LG1(" found PAIR");
-                ksprintf(&e->log,"paired,found,");
+                LG(" found PAIR");
+                LGlog(&e->log, "%s", "paired,found,");
             } else {
-                LG1(" no PAIR");
-                ksprintf(&e->log,"notpaired,NA,");
+                LG(" no PAIR");
+                LGlog(&e->log, "%s", "notpaired,NA,");
             }
-            LG1("\n");
+            LG("\n");
         }
         else {
-            LG1("* d %s %lld\n", bam_get_qname(e->r), e->ord);
-            ksprintf(&e->log,"nsel,");
-            moveread1(c, NULL, e, en, 0, 0);   //remove as non-selected
+            LG("* d %s %"PRIu64"\n", bam_get_qname(e->r), e->ord);
+            LGlog(&e->log, "%s", "nsel,");
+            moveread(c, NULL, e, en, 0, 0);   //remove as non-selected
         }
         e = en; //chk with next one
     }
     if (c->trgr == 2) {    //2 --> wnd full, processed, move wnd
-        //todo maybe warn!
         en = NULL;
         hts_pos_t adj = c->tail ? c->tail->r->core.pos - c->w_en : 0; //last one, out of window - current end
         hts_pos_t new_st = c->w_st + adj;
@@ -5150,49 +4931,76 @@ static int processcache(htsFile *fp)
         while (c->head_nsel && c->head_nsel->r->core.pos < new_st) { //holding until wnd passes mate pos, but anything after this which has already passed out is held until this is cleared!
             rem = 1;
             en = c->head_nsel->next;
-            LG1("* nsel discarded %s %lld\n", bam_get_qname(c->head_nsel->r), c->head_nsel->ord);
-            ksprintf(&c->head_nsel->log,",,,nsel-disc,");
+            LG("* nsel discarded %s %"PRIu64"\n", bam_get_qname(c->head_nsel->r), c->head_nsel->ord);
+            LGlog(&c->head_nsel->log,"%s",",,,nsel-disc,");
             c->nselcnt--;
             retcache(c, c->head_nsel);
             if(!(c->head_nsel = en)) c->tail_nsel = NULL;
         }
-        if (rem)
-          LG1("* wnd full, removed items from head_nsel\n")//fprintf(fp1, "* wnd full, removed items from head_nsel\n");
-        else
-           LG1("* wnd full, 0 removed items from head_nsel, %lld %lld-%lld\n", c->head_nsel?c->head_nsel->r->core.pos : 0, c->w_st, c->w_en)//fprintf(fp1, "* wnd full, removed items from head_nsel\n")
+        if (rem) {
+          LG("* wnd full, removed items from head_nsel\n")//fprintf(fp1, "* wnd full, removed items from head_nsel\n");
+        }
+        else {
+           LG("* wnd full, 0 removed items from head_nsel, [%"PRIhts_pos"-%"PRIhts_pos"] %"PRIhts_pos"\n", c->w_st, c->w_en, c->head_nsel?c->head_nsel->r->core.pos : 0)//fprintf(fp1, "* wnd full, removed items from head_nsel\n")
+        }
+        //assert(e == c->head);
         c->w_st = c->head ? c->head->r->core.pos : new_st;    //move wnd
         c->w_en = c->w_st + c->wndsz;
-        //adj_en -= adj_st; todo do we need c->dpth check?
         adj = c->w_st - bkp_st;
         if (adj >= c->dp_sz) {
-            memset(c->dpth, 0, c->dp_sz);
+            memset(c->dpth, 0, c->dp_sz * sizeof(int));
             c->dp_en = c->w_st + c->dp_sz;
+            LG("0 dpth buffer\n");
         } else {
+            LG("adj %"PRIhts_pos", mv %"PRIhts_pos"-%"PRIhts_pos",", adj, c->w_st+adj, c->w_st+c->dp_sz);
+            LG("0 set %"PRIhts_pos" - %"PRIhts_pos"\n", c->w_st+c->dp_sz-adj,c->w_st+c->dp_sz);
             memmove(c->dpth, c->dpth + adj, (c->dp_sz - adj) * sizeof(int));
             memset(c->dpth + c->dp_sz - adj, 0, adj * sizeof(int));
             c->dp_en += adj;
+            //assert(c->dp_en == (c->w_st+c->dp_sz));
         }
-        LG1("* wnd moved, %lld - %lld, dpth %lld - %lld; s %lld i %lld ns %lld\n", c->w_st, c->w_en, c->w_st, c->dp_en, c->selcnt, c->inscnt, c->nselcnt);
+        LG("* wnd moved, %"PRIhts_pos" - %"PRIhts_pos", dpth %"PRIhts_pos" - %"PRIhts_pos"; s %"PRIu64" i %"PRIu64" ns %"PRIu64"\n", c->w_st, c->w_en, c->w_st, c->dp_en, c->selcnt, c->inscnt, c->nselcnt);
         c->trgr = 3;    //reset full status n get already processedn
     }
-    assert(c->cache.m == c->cache.f+c->rcnt+c->inscnt+c->selcnt+c->nselcnt);
+    //assert(c->cache.m == c->cache.f+c->rcnt+c->inscnt+c->selcnt+c->nselcnt);
+    LG("pc2: t %"PRIu64" s %"PRIu64" i %"PRIu64" n %"PRIu64"\n", c->rcnt, c->selcnt,c->inscnt, c->nselcnt);
+
+    if (c->head_sel)
+        hts_prefetch(c->head_sel);
+    if (c->head_ins)
+        hts_prefetch(c->head_ins);
     return ret;
 fail:
-    LG1(" FAIL\n");
+    LG(" FAIL\n");
     return -1;
 }
 // Returns 0 on success,
 //        -1 on EOF,
 //       <-1 on error
-int sam_read1(htsFile *fp, sam_hdr_t *h, bam1_t *b)
+int sam_read1(htsFile *fp, sam_hdr_t *h, bam1_t *r)
 {
     int ret, pass_filter;
     rc_t *c = (rc_t*)fp->c;
-    if (c && getfromreadcache(fp, b)) {
+    ce_t *e = NULL;
+    bam1_t *b = r;
+    if (c && getfromreadcache(fp, r)) {
         return 0;
+    }
+    if(c)
+    {
+        LG("sr1: t %"PRIu64" s %"PRIu64" i %"PRIu64" n %"PRIu64"\n", c->rcnt, c->selcnt,c->inscnt, c->nselcnt);
+        // assert(!c->inscnt && !c->selcnt);
+        // assert(!c->head_sel && !c->tail_sel);
+        // assert(!c->head_ins && !c->tail_ins);
     }
 
     do {
+        if (c) {
+            if (!(e = getcache(fp)))
+                return -1;
+            b = e->r;
+            // assert(c->cache.m == c->cache.f+1+c->rcnt+c->inscnt+c->selcnt+c->nselcnt);
+        }
         switch (fp->format.format) {
         case bam:
             ret = sam_read1_bam(fp, h, b);
@@ -5232,40 +5040,53 @@ int sam_read1(htsFile *fp, sam_hdr_t *h, bam1_t *b)
             : 1;
         //if pass, add to cache
         //move processing to thread
-        if (pass_filter && fp->c) {
-            /* window should start from 1st pos read in
-            pos may change or could be on same pos and
-            as tid changes, pos may start again from older pos or even smaller than that!
-            */
-            pass_filter = 0;
-            if (ret >= 0) {
-                if (addtoreadcache(fp, b)) {
-                    return -1;
-                }
-            } else {
-                if (ret == -1) {
-                    c->trgr = 4;//end
-                    c->tid = -3;
-                    //fprintf(stderr,"ret -1; ready for processing\n");
-                }
-            }
-            if (c->trgr >= 2) { //end or window full/ready
-                processcache(fp);
-
-                pass_filter = getfromreadcache(fp, b);
-                if (-1 == ret && !pass_filter) {
-                    pass_filter = 1;
-                    //todo logging
-                    while (c->head_nsel) {
-                        LG1("LG bal %lld %s,,,nsel-cleaning\n", c->head_nsel->ord, c->head_nsel->log.s);
-                        c->head_nsel = c->head_nsel->next;
+        if (fp->c) {
+            if (pass_filter) {
+                /* window should start from 1st pos read in
+                pos may change or could be on same pos and
+                as tid changes, pos may start again from older pos or even smaller than that!
+                */
+                pass_filter = 0;
+                if (ret >= 0) {
+                    if (addtoreadcache(fp, e)) {
+                        return -1;
+                    }
+                } else {
+                    if (ret == -1) {
+                        c->trgr = 4;//end
+                        c->tid = -3;
+                        retcache(c,e);
+                        //fprintf(stderr,"ret -1; ready for processing\n");
                     }
                 }
-                else
-                    ret = 0;
-            }
+                if (c->trgr >= 2) { //end or window full/ready
+                    // {
+                    //     assert(!c->inscnt && !c->selcnt);
+                    //     assert(!c->head_sel && !c->tail_sel);
+                    //     assert(!c->head_ins && !c->tail_ins);
+                    // }
+
+                    processcache(fp);
+
+                    pass_filter = getfromreadcache(fp, r);
+                    if (-1 == ret && !pass_filter) {
+                        pass_filter = 1;
+                        // ce_t *tmp = c->head_nsel;
+                        // while (tmp) {
+                        //     LG("LG bal %"PRIu64" %s,,,nsel-cleaning\n", tmp->ord, tmp->log.s);
+                        //     tmp = tmp->next;
+                        // }
+                    }
+                    else
+                        ret = 0;
+                }
+            } else
+                retcache(c, e);
         }
     } while (pass_filter == 0);
+    if (c) {
+        LG("sr2: t %"PRIu64" s %"PRIu64" i %"PRIu64" n %"PRIu64"\n", c->rcnt, c->selcnt,c->inscnt, c->nselcnt);
+    }
 
     return pass_filter < 0 ? -2 : ret;
 }

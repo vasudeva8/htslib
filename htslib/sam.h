@@ -365,9 +365,10 @@ typedef struct rc_t {
     uint64_t ord;   //last ordinal
     int trgr;  //sts: 0 not ready 1 caching 2 wnd full 3 ready 4 end
     int wndsz, maxdpth;
-    hts_pos_t w_st, w_en;
+    hts_pos_t w_st, w_en, dp_en;
     khash_t(kh_pair) *selpair;
-    int dp_sz, /*dp_st,*/ dp_en, tid;
+    int dp_sz, /*dp_st,*/ tid;
+    int *inc, inc_sz;
     int *dpth;
 } rc_t;
 

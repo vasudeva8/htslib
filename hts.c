@@ -1703,9 +1703,10 @@ void destroycache(htsFile *fp)
     const int inc = 1024;
     ce_t *elem = NULL;
     rc_t *c = (rc_t*) fp->c;
+    khint_t iter;
     if(!c)
         return;
-    for (khint_t iter = kh_begin(c->selpair); iter != kh_end(c->selpair); ++iter) {
+    for (iter = kh_begin(c->selpair); iter != kh_end(c->selpair); ++iter) {
         if (kh_exist(c->selpair, iter)) {
             kh_del(kh_pair, c->selpair, iter);
         }
@@ -1720,6 +1721,7 @@ void destroycache(htsFile *fp)
     }
     free(c->cache.p);
     free(c->dpth);
+    free(c->inc);
     kh_destroy(kh_pair, c->selpair);
     free(c);
     fp->c = NULL;
@@ -2004,11 +2006,10 @@ int hts_set_opt(htsFile *fp, enum hts_fmt_option opt, ...) {
         //todo check whether sorted by pos and setup only if so
         if (dpth > 0)
             if(setupcache(fp, 3500, dpth)) {
-            hts_log_warning("Failed to setup hts cache.\n");
-            return 0;
-        }
-        //hts_log_warning("wnd %d dpth %d\n", wndsz, dpth);
-        break;
+                hts_log_warning("Failed to setup hts cache");
+            }
+            //hts_log_warning("Wnd %d dpth %d", wndsz, dpth);
+        return 0;
     }
 
     default:
