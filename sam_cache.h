@@ -86,7 +86,7 @@ void *getreadbuffer_iter(void *e);
 void notifyend_iter(void *c, void *e);
 int addtoreadcache_iter(void *c, void *s, int *sts);
 int processcache_iter(void *c);
-void resetcache_itr(rc_t *c);
+void resetcache_iter(rc_t *c);
 
 #ifdef CACHE_DBG_LOG
 extern FILE *clogfp;

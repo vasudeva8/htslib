@@ -4400,7 +4400,7 @@ int hts_itr_next(BGZF *fp, hts_itr_t *iter, void *s, void *data)
         if (!getfromreadcache_iter(c, s, &iter->tid, &iter->curr_beg, &iter->curr_end)) {
             //if (ret == -1) {
                 iter->finished = 1;
-                resetcache_itr(c);
+                resetcache_iter(c);
             //}
             return -1;
         } else if (ret < 0)

@@ -445,13 +445,13 @@ static inline ce_t* find_nsel(rc_t *c, ce_t *e, ce_t **ep)
     *ep = NULL;
     while (s) {
         if (s->next)
-            hts_prefetch(s->next->r);
+            hts_prefetch(s->next);
         if (s->ord > e->ord)
             break;  //not found
         if (s->r->core.pos == e->r->core.mpos &&
             s->r->core.mpos == e->r->core.pos &&
             s->r->core.tid == e->r->core.mtid &&
-            s->r->core.mtid == e->r->core.mtid && !strcmp(bam_get_qname(s->r), bam_get_qname(e->r)))
+            s->r->core.mtid == e->r->core.tid && !strcmp(bam_get_qname(s->r), bam_get_qname(e->r)))
             return s;
         *ep = s;
         s = s->next;
@@ -891,7 +891,7 @@ int processcache_iter(void *c)
     return processcache((rc_t*)c);
 }
 
-void resetcache_itr(rc_t *c)
+void resetcache_iter(rc_t *c)
 {
     resetdepth(c);
     c->trgr = 0;
