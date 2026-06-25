@@ -49,7 +49,7 @@ typedef struct pair_exp {
     int mtid, tid;
     hts_pos_t mpos, pos;
 } pair_exp;
-KHASH_MAP_INIT_STR(kh_pair, pair_exp)
+KHASH_MAP_INIT_STR(pair, pair_exp)
 
 typedef struct rc_t {
     cache_t cache;  //cache of mem space
@@ -62,7 +62,7 @@ typedef struct rc_t {
     int trgr;  //sts: 0 not ready 1 caching 2 wnd full 3 ready 4 end
     int wndsz, maxdpth, itr;
     hts_pos_t w_st, w_en, dp_en;
-    khash_t(kh_pair) *selpair;
+    khash_t(pair) *selpair;
     int dp_sz, /*dp_st,*/ tid;
     int *inc, inc_sz;
     int *dpth;
@@ -77,6 +77,7 @@ ce_t* getcache(htsFile *fp);
 int addtoreadcache(rc_t *c, ce_t *e, int *sts);
 int getfromreadcache(rc_t *c, bam1_t *b, hts_pos_t *end);
 int processcache(rc_t *c);
+int processcache_leftright(rc_t *c);
 
 //wrapper / for iterators
 void* getsamcache(hts_itr_t *itr, void *data);

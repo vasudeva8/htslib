@@ -1093,7 +1093,7 @@ sub test_cache
     testv $opts, "./compare_sam.pl $$opts{tmp}/cache.tmp.1.T1T3T2.sam $$opts{path}/cache.exp.1.T1T3T2.sam";
     # different depth val
     testv $opts, "./test_view -i hts_maxdepth=2 -p $$opts{tmp}/cache.tmp.2.sam $$opts{tmp}/cache.tmp.bam T1 T2 T3";
-    testv $opts, "head -n 30 $$opts{path}/cache.exp.2.sam > $$opts{tmp}/cache.tmp.exp.sam";
+    testv $opts, "head -n 31 $$opts{path}/cache.exp.2.sam > $$opts{tmp}/cache.tmp.exp.sam";
     testv $opts, "./compare_sam.pl $$opts{tmp}/cache.tmp.2.sam $$opts{tmp}/cache.tmp.exp.sam";
     # multi region iterator
     testv $opts, "./test_view -M -i hts_maxdepth=2 -p $$opts{tmp}/cache.tmp.2.T3T1T2.sam $$opts{tmp}/cache.tmp.bam T3 T1 T2";
