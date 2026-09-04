@@ -332,7 +332,8 @@ enum hts_fmt_option {
     HTS_OPT_BLOCK_SIZE,
     HTS_OPT_FILTER,
     HTS_OPT_PROFILE,
-    HTS_OPT_MAXDEPTH,
+    HTS_OPT_CACHE_FLT_DEPTH,    //depth above which to discard reads
+    HTS_OPT_CACHE_FLT_SIZE,     //size of caching window
 
     // Fastq
 
@@ -1317,7 +1318,7 @@ typedef hts_itr_t *hts_itr_query_func(const hts_idx_t *idx, int tid, hts_pos_t b
 HTSLIB_EXPORT
 hts_itr_t *hts_itr_querys(const hts_idx_t *idx, const char *reg, hts_name2id_f getid, void *hdr, hts_itr_query_func *itr_query, hts_readrec_func *readrec);
 
-/// use caching when available
+/// use caching when available, invoked only for sequence data to differentiate between sequence and variant/tabix usage
 static inline hts_itr_t* hts_itr_usecache(hts_itr_t *itr) { if (itr) itr->usecache = 1; return itr; }
 
 /// Return the next record from an iterator

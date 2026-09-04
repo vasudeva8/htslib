@@ -1151,9 +1151,8 @@ static int sam_readrec(BGZF *ignored, void *fpv, void *bv, int *tid, hts_pos_t *
     htsFile *fp = (htsFile *)fpv;
     bam1_t *b = bv;
     fp->line.l = 0;
-    if (fp->c) {    //mark as thr' iterator
-        ((rc_t*)fp->c)->itr = 1;
-    }
+    //mark iterator access to cache, if in use
+    set_iter_access(fp);
     int ret = sam_read1(fp, fp->bam_header, b);
     if (ret >= 0) {
         *tid = b->core.tid;
@@ -1169,9 +1168,8 @@ static int sam_readrec_rest(BGZF *ignored, void *fpv, void *bv, int *tid, hts_po
     htsFile *fp = (htsFile *)fpv;
     bam1_t *b = bv;
     fp->line.l = 0;
-    if (fp->c) {    //mark as thr' iterator
-        ((rc_t*)fp->c)->itr = 1;
-    }
+    //mark iterator access to cache, if in use
+    set_iter_access(fp);
     int ret = sam_read1(fp, fp->bam_header, b);
     return ret;
 }
@@ -4281,30 +4279,24 @@ int sam_read1(htsFile *fp, sam_hdr_t *h, bam1_t *r)
     ce_t *e = NULL;
     bam1_t *b = r;
 
-    if(fp->c) { //cache in use?
-        if (!((rc_t*)fp->c)->itr) { //not thr' iterators, OK to use here
-            c = (rc_t*)fp->c;
-        }
+    //if cache is in use and is not invoked thr' iterators, handle cache here itself
+    //otherwise handle in itr_nxt - no cache handling here!
+    if (!get_iter_access(fp)) {
+        c = (rc_t*)fp->c;
     }
-    if (c) {
+    if (c) {    //try to get cached reads
         if ((ret = getfromreadcache(c, r, NULL)) > 0) {
             return 0;
         } else if (ret < 0)
             return -1;
-    }
-    if(c) {
-        LG("sr1: t %"PRIu64" s %"PRIu64" i %"PRIu64" n %"PRIu64"\n", c->rcnt, c->selcnt,c->inscnt, c->nselcnt);
-        // assert(!c->inscnt && !c->selcnt);
-        // assert(!c->head_sel && !c->tail_sel);
-        // assert(!c->head_ins && !c->tail_ins);
+        //nothing cached or not ready yet
     }
 
     do {
-        if (c) {
+        if (c) {    //get cached storage
             if (!(e = getcache(fp)))
                 return -4;
-            b = e->r;
-            // assert(c->cache.m == c->cache.f+1+c->rcnt+c->inscnt+c->selcnt+c->nselcnt);
+            b = e->r;   //get bam record from storage
         }
         switch (fp->format.format) {
         case bam:
@@ -4344,55 +4336,34 @@ int sam_read1(htsFile *fp, sam_hdr_t *h, bam1_t *r)
             ? sam_passes_filter(h, b, fp->filter)
             : 1;
 
-        //if pass, add to cache
-        //move processing to thread
         if (c) {
+            //cache in use, add to cache if it is passed filtering
             if (pass_filter) {
-                /* window should start from 1st pos read in
-                pos may change or could be on same pos and
-                as tid changes, pos may start again from older pos or even smaller than that!
-                */
                 pass_filter = 0;
-                if (ret >= 0) {
+                if (ret >= 0) { //successfull read
                     if (addtoreadcache(c, e, NULL)) {
                         return -4;
                     }
                 } else {
-                    if (ret == -1) {
-                        c->trgr = 4;//end   //todo change to avoid internal access
-                        c->tid = -3;
-                        retcache(c,e);
-                        //fprintf(stderr,"ret -1; ready for processing\n");
+                    if (ret == -1) {    //end
+                        notifyend(c, e);
                     }
                 }
-                if (c->trgr >= 2) { //end or window full/ready
-                    // {
-                    //     assert(!c->inscnt && !c->selcnt);
-                    //     assert(!c->head_sel && !c->tail_sel);
-                    //     assert(!c->head_ins && !c->tail_ins);
-                    // }
-
-                    processcache(c);
+                if (getcachestatus(c) >= WNDFULL) { //end/window full/ready
+                    if (processcache(c) < 0)
+                        return -4;
 
                     pass_filter = getfromreadcache(c, r, NULL);
                     if (-1 == ret && !pass_filter) {
                         pass_filter = 1;
-                        // ce_t *tmp = c->head_nsel;
-                        // while (tmp) {
-                        //     LG("LG bal %"PRIu64" %s,,,nsel-cleaning\n", tmp->ord, tmp->log.s);
-                        //     tmp = tmp->next;
-                        // }
                     }
                     else
                         ret = 0;
                 }
-            } else
+            } else  //return storage
                 retcache(c, e);
         }
     } while (pass_filter == 0);
-    if (c) {
-        LG("sr2: t %"PRIu64" s %"PRIu64" i %"PRIu64" n %"PRIu64"\n", c->rcnt, c->selcnt,c->inscnt, c->nselcnt);
-    }
 
     return pass_filter < 0 ? -2 : ret;
 }

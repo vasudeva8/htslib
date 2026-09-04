@@ -35,13 +35,15 @@ typedef struct ce_t {//cache element
     uint64_t ord;   //ordinal
     bam1_t *r;
     struct ce_t *next, *prev;
-    uint64_t len;
+    hts_pos_t len;
+#ifdef CACHE_DBG_LOG
     kstring_t log;
+#endif //CACHE_DBG_LOG
 } ce_t;
 
 typedef struct cache_t {//cache
-    int f, m, n;    //free, max, chunks(of 1024?)
-    ce_t **p;
+    int f, m, n;    //free elements, max elements, count of elem chunks (of 1024)
+    ce_t **p;       //array holding chunks of elements
     struct ce_t *head, *tail;
 } cache_t;
 
@@ -51,48 +53,72 @@ typedef struct pair_exp {
 } pair_exp;
 KHASH_MAP_INIT_STR(pair, pair_exp)
 
-typedef struct rc_t {
+/// cache status
+typedef enum cs {NOTREADY = 0, CACHING, WNDFULL, READY, END} cs;
+
+typedef struct rc_t {//read cache
     cache_t cache;  //cache of mem space
     ce_t *head, *tail;  //alignments
     ce_t *head_sel, *tail_sel;  //selected alignments
     ce_t *head_nsel, *tail_nsel;  //non-selected alignments
     ce_t *head_ins, *tail_ins;  //inserted alignments
-    uint64_t selcnt, nselcnt, inscnt,rcnt;
+    uint64_t selcnt, nselcnt, inscnt,rcnt;  //todo remove?
     uint64_t ord;   //last ordinal
-    int trgr;  //sts: 0 not ready 1 caching 2 wnd full 3 ready 4 end
-    int wndsz, maxdpth, itr;
-    hts_pos_t w_st, w_en, dp_en;
-    khash_t(pair) *selpair;
-    int dp_sz, /*dp_st,*/ tid;
-    int *inc, inc_sz;
-    int *dpth;
+    cs sts;
+    int wndsz, maxdpth, itr;    //size of cache window, depth limit, thr' iterator or not
+    hts_pos_t w_st, w_en, dp_en, inc_sz;    //wnd start, end, dpth buffer end, size of inc. buffer
+    khash_t(pair) *selpair;     //hash holding name of selected reads for pair selection
+    int dp_sz, tid;
+    int *inc;   //buffer holding inc val (1), attempt to force intrinsics
+    int *dpth;  //depth buffer
 } rc_t;
 
-
-void destroycache(htsFile *fp);
+/// @brief setup cache
+/// @param fp file pointer to which cache is assinged and used
+/// @param wndsz size of cache window
+/// @param maxdpth depth limit
+/// @return 0 on success others on failure
 int setupcache(htsFile *fp, int wndsz, int maxdpth);
-
+void destroycache(htsFile *fp);
+// return an element to cache
 void retcache(rc_t *c, ce_t* elem);
+// get a cached storage from cache
 ce_t* getcache(htsFile *fp);
-int addtoreadcache(rc_t *c, ce_t *e, int *sts);
+//notify end of read
+void notifyend(void *c, void *e);
+//add a read to cache
+int addtoreadcache(rc_t *c, ce_t *e, cs *sts);
+//retrieve a selected read from cached ones
 int getfromreadcache(rc_t *c, bam1_t *b, hts_pos_t *end);
+//process cached reads and select required ones
 int processcache(rc_t *c);
-int processcache_leftright(rc_t *c);
-
+//get status of cache
+cs getcachestatus(rc_t *c);
 //wrapper / for iterators
+//get/set access status - thr' iterator or not; if thr' iterator, cache handling is done in itr_nxt
+void set_iter_access(htsFile *fp);
+int get_iter_access(htsFile *fp);
+//get cache pointer, for use in iterator
 void* getsamcache(hts_itr_t *itr, void *data);
+//retrieve a selected read from cached ones, wrapper for iterator
 int getfromreadcache_iter(void *c, void *s, int *tid, hts_pos_t *beg, hts_pos_t* end);
+// get a cached storage from cache, wrapper for iterator
 void *getcache_iter(void *data);
+//retrieve bam storage from cache
 void *getreadbuffer_iter(void *e);
+//notify end of read, wrapper for iterator
 void notifyend_iter(void *c, void *e);
-int addtoreadcache_iter(void *c, void *s, int *sts);
+//add a read to cache, wrapper for iterator
+int addtoreadcache_iter(void *c, void *s, cs *sts);
+//process cached reads and select required ones, wrapper for iterator
 int processcache_iter(void *c);
+//resets cache status and depth buffer, end of tid/region
 void resetcache_iter(rc_t *c);
 
 #ifdef CACHE_DBG_LOG
-extern FILE *clogfp;
+extern FILE *cachelog;
 //this is closed by system on exit!
-#define LG(...) {if (!clogfp) clogfp = fopen("/tmp/op","w"); if (clogfp) { fprintf(clogfp, __VA_ARGS__);}}
+#define LG(...) {if (!cachelog) cachelog = fopen("/tmp/op","w"); if (cachelog) { fprintf(cachelog, __VA_ARGS__);}}
 #define LGlog(s,...) ksprintf(s,__VA_ARGS__)
 #else
 #define LG(...) ;
