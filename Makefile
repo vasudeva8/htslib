@@ -292,8 +292,8 @@ header_h = header.h cram/string_alloc.h cram/pooled_alloc.h $(htslib_khash_h) $(
 hfile_internal_h = hfile_internal.h $(htslib_hts_defs_h) $(htslib_hfile_h) $(textutils_internal_h)
 hts_internal_h = hts_internal.h $(htslib_hts_h) $(textutils_internal_h)
 hts_time_funcs_h = hts_time_funcs.h
-sam_internal_h = sam_internal.h $(htslib_sam_h)
 sam_cache_h = sam_cache.h $(htslib_khash_h) $(htslib_sam_h)
+sam_internal_h = sam_internal.h $(htslib_sam_h) $(sam_cache_h)
 textutils_internal_h = textutils_internal.h $(htslib_kstring_h)
 thread_pool_internal_h = thread_pool_internal.h $(htslib_thread_pool_h)
 
