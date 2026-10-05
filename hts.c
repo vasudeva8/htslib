@@ -1720,6 +1720,7 @@ int hts_close(htsFile *fp)
     free(fp->fn);
     free(fp->fn_aux);
     free(fp->line.s);
+    free(fp->state);
     free(fp);
     errno = save;
     return ret;
