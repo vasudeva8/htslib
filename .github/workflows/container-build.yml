@@ -39,7 +39,7 @@ jobs:
             pacman -Sy --noconfirm base-devel git libdeflate
             ;;
           *centos*)
-            yum install -y autoconf automake make gcc perl-Data-Dumper zlib-devel bzip2 bzip2-devel xz-devel curl-devel openssl-devel git perl-FindBin
+            yum install -y autoconf automake make gcc perl-Data-Dumper zlib-devel bzip2 bzip2-devel xz-devel curl-devel openssl-devel git perl-FindBin diffutils
             ;;
           *rockylinux*)
             yum install -y autoconf automake make gcc perl-Data-Dumper zlib-devel bzip2 bzip2-devel xz-devel curl-devel openssl-devel git perl-FindBin diffutils
