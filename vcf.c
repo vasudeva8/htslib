@@ -1,5 +1,5 @@
 /*  vcf.c -- VCF/BCF API functions.
- 
+
      Copyright (C) 2012, 2013 Broad Institute.
     Copyright (C) 2012-2026 Genome Research Ltd.
     Portions copyright (C) 2014 Intel Corporation.
