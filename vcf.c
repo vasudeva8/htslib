@@ -6711,7 +6711,7 @@ static int64_t get_rlen(const bcf_hdr_t *h, bcf1_t *v)
         bad = 0;
         //get largest svlen corresponding to a <DEL> symbolic allele
         for (i = 0; i < svleninfo->len && i + 1 < v->n_allele; ++i) {
-            if (!(svlenals[i >> 3] & (1 << ((i + 1) & 7))))
+            if (!(svlenals[(i + 1) >> 3] & (1 << ((i + 1) & 7))))
                 continue;
 
             switch(svleninfo->type) {
